@@ -1,0 +1,5 @@
+{
+  "name": "AI Image Studio",
+  "description": "An advanced web application to craft perfect prompts and generate stunning, professional product images using AI. Features batch generation, a photo gallery, an AI prompt wizard, and more.",
+  "requestFramePermissions": []
+}
