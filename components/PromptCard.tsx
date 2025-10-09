@@ -26,17 +26,19 @@ interface PromptCardProps {
     isBatchMode: boolean;
     onSetAspectRatio: (promptId: string, ratio: string) => void;
     onAddReferenceClick: (promptId: string) => void;
+    onMoveToFolder?: (promptId: string) => void;
 }
 
 export const PromptCard: React.FC<PromptCardProps> = ({
     prompt, subjectDescription, onGenerate, onCopy, onSelectPrompt, 
     isPromptSelected, isLoading, assets = [], showPreviews, onPreviewClick, onStop,
     onDelete, onStartEdit, onSaveEdit, onCancelEdit, editingState, onUpdateEditingPrompt,
-    isBatchMode, onSetAspectRatio, onAddReferenceClick
+    isBatchMode, onSetAspectRatio, onAddReferenceClick, onMoveToFolder
 }) => {
     
     const isEditing = editingState?.id === prompt.id;
     const [previewIndex, setPreviewIndex] = useState(0);
+    const [isDetailsExpanded, setIsDetailsExpanded] = useState(true);
 
     // Version History State
     const [historyVisible, setHistoryVisible] = useState(false);
@@ -103,10 +105,27 @@ export const PromptCard: React.FC<PromptCardProps> = ({
 
     return (
        <div className="bg-slate-800/50 backdrop-blur-md rounded-2xl shadow-xl border border-slate-700 overflow-hidden flex flex-col group/card transition-all duration-300 hover:border-blue-500/50 relative min-h-[16rem]">
+            <style>{`
+                @keyframes shimmer {
+                    0% { transform: translateX(-100%); }
+                    100% { transform: translateX(100%); }
+                }
+                @keyframes spin-slow {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(-360deg); }
+                }
+                .animate-shimmer {
+                    animation: shimmer 2s infinite;
+                }
+                .animate-spin-slow {
+                    animation: spin-slow 3s linear infinite;
+                }
+            `}</style>
             <div className="p-4 flex-1 flex flex-col">
                 <div className="relative flex-1">
                     <div className="absolute top-0 right-0 flex flex-col items-end gap-2 opacity-0 group-hover/card:opacity-100 transition-opacity z-10">
                         <Tooltip text="Copy prompt"><button onClick={() => onCopy(promptText)} className="p-1.5 text-slate-300 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.COPY} className="w-4 h-4"/></button></Tooltip>
+                        {!isEditing && isCustom && onMoveToFolder && <Tooltip text="Move to folder"><button onClick={() => onMoveToFolder(prompt.id)} className="p-1.5 text-slate-300 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.FOLDER} className="w-4 h-4"/></button></Tooltip>}
                         {!isEditing && isCustom && <Tooltip text="Edit"><button onClick={() => onStartEdit(displayedData as CustomPrompt)} className="p-1.5 text-slate-300 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.EDIT} className="w-4 h-4"/></button></Tooltip>}
                         {!isEditing && isCustom && !viewingHistoryItem && <Tooltip text="Delete"><button onClick={() => onDelete(prompt.id)} className="p-1.5 text-red-400 hover:text-red-300 bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.TRASH} className="w-4 h-4"/></button></Tooltip>}
                         {isEditing && (
@@ -150,12 +169,22 @@ export const PromptCard: React.FC<PromptCardProps> = ({
                         </div>
                     ) : (
                         <div className="space-y-2">
-                            <div className="flex items-baseline gap-2">
-                                <h3 className="font-bold text-white truncate" title={prompt.name}>{prompt.name}</h3>
+                            <div 
+                                className="flex items-center gap-2 cursor-pointer hover:bg-slate-700/30 -mx-2 px-2 py-1 rounded-md transition-colors"
+                                onClick={() => setIsDetailsExpanded(!isDetailsExpanded)}
+                            >
+                                <Icon 
+                                    path={ICONS.CHEVRON_DOWN} 
+                                    className={`w-4 h-4 text-slate-400 transition-transform duration-200 flex-shrink-0 ${isDetailsExpanded ? 'rotate-0' : '-rotate-90'}`}
+                                />
+                                <h3 className="font-bold text-white break-words flex-1" title={prompt.name}>{prompt.name}</h3>
                                 <div className="relative">
                                     <button
                                         ref={historyButtonRef}
-                                        onClick={() => canShowHistory && setHistoryVisible(v => !v)}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            canShowHistory && setHistoryVisible(v => !v);
+                                        }}
                                         disabled={!canShowHistory}
                                         className="text-xs bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded-full flex-shrink-0 disabled:cursor-default disabled:opacity-70 hover:bg-slate-600 transition"
                                         title={canShowHistory ? "View version history" : "Version"}
@@ -180,28 +209,57 @@ export const PromptCard: React.FC<PromptCardProps> = ({
                                     )}
                                 </div>
                             </div>
-                             {displayedData.tags && displayedData.tags.length > 0 && (
-                                <div className="flex flex-wrap gap-1">
-                                    {displayedData.tags.map(tag => tag && <span key={tag} className="text-xs bg-cyan-900/50 text-cyan-300 px-2 py-0.5 rounded-full">{tag}</span>)}
+                            
+                            {isDetailsExpanded && (
+                                <div className="overflow-hidden transition-all duration-300 ease-in-out">
+                                    {displayedData.tags && displayedData.tags.length > 0 && (
+                                        <div className="flex flex-wrap gap-1">
+                                            {displayedData.tags.map(tag => tag && <span key={tag} className="text-xs bg-cyan-900/50 text-cyan-300 px-2 py-0.5 rounded-full">{tag}</span>)}
+                                        </div>
+                                    )}
+                                    <div className="text-slate-300 text-sm leading-relaxed p-2 bg-slate-900/40 rounded-md max-h-24 overflow-y-auto custom-scroll border border-slate-700/50 transition-all duration-300">
+                                        {promptText.split(/(\[subject\])/).map((part, i) => part === '[subject]' ? <span key={i} className="text-cyan-400 font-bold bg-slate-700/80 px-1.5 py-0.5 rounded">{subjectDescription || '[subject]'}</span> : part)}
+                                    </div>
                                 </div>
                             )}
-                            <div className="text-slate-300 text-sm leading-relaxed p-2 bg-slate-900/40 rounded-md max-h-24 overflow-y-auto custom-scroll border border-slate-700/50 transition-all duration-300">
-                                {promptText.split(/(\[subject\])/).map((part, i) => part === '[subject]' ? <span key={i} className="text-cyan-400 font-bold bg-slate-700/80 px-1.5 py-0.5 rounded">{subjectDescription || '[subject]'}</span> : part)}
-                            </div>
                         </div>
                     )}
                     </div>
                 </div>
 
                 <div className="mb-4 flex-grow flex flex-col justify-center">
-                    {isLoading && (
-                        <div className="flex items-center justify-center my-4">
-                            <div className="w-8 h-8 border-4 border-slate-600 border-t-cyan-400 rounded-full animate-spin"></div>
-                            <button onClick={() => onStop(prompt.id)} className="ml-4 text-red-400 hover:text-red-300 font-bold">Stop</button>
+                    {isLoading ? (
+                        <div className="relative bg-slate-900/60 border-2 border-dashed border-cyan-500/50 rounded-lg overflow-hidden h-48">
+                            {/* Background animated gradient */}
+                            <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-blue-500/10 to-purple-500/10 animate-pulse"></div>
+                            
+                            {/* Shimmer effect */}
+                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-400/20 to-transparent animate-shimmer"></div>
+                            
+                            {/* Content */}
+                            <div className="relative flex flex-col items-center justify-center h-full p-4">
+                                {/* Spinner */}
+                                <div className="relative mb-3">
+                                    <div className="w-12 h-12 border-4 border-slate-700 border-t-cyan-400 rounded-full animate-spin"></div>
+                                    <div className="absolute inset-0 w-12 h-12 border-4 border-transparent border-r-blue-400 rounded-full animate-spin-slow"></div>
+                                </div>
+                                
+                                {/* Text */}
+                                <p className="text-cyan-400 font-semibold text-xs mb-3 animate-pulse">Generating...</p>
+                                
+                                {/* Stop button */}
+                                <button 
+                                    onClick={() => onStop(prompt.id)} 
+                                    className="flex items-center gap-1.5 bg-red-600/90 hover:bg-red-500 text-white font-bold py-1.5 px-3 rounded-md transition-all hover:scale-105 active:scale-95 shadow-lg text-sm"
+                                >
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <rect x="6" y="6" width="12" height="12" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                    Stop
+                                </button>
+                            </div>
                         </div>
-                    )}
-                    
-                    {!isLoading && versionFilteredAssets.length > 0 && (
+                    ) : versionFilteredAssets.length > 0 ? (
                         <div>
                             {showPreviews ? (
                                 <div className="flex space-x-2 overflow-x-auto pb-2 custom-scroll">
@@ -224,7 +282,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
                                 </div>
                             )}
                         </div>
-                    )}
+                    ) : null}
                 </div>
             
                 <div className="mt-auto flex items-center gap-2 flex-wrap">

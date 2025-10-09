@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Icon } from './Icon';
 import { ICONS, ASPECT_RATIOS } from '../constants';
+import * as Storage from '../services/storageService';
+import type { StorageMode } from '../services/storageService';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -17,6 +19,8 @@ interface SettingsModalProps {
     setDevMode: (value: boolean) => void;
     confirmOnDelete: boolean;
     setConfirmOnDelete: (value: boolean) => void;
+    useAINaming: boolean;
+    setUseAINaming: (value: boolean) => void;
 }
 
 const Toggle = ({ checked, onChange, label }: { checked: boolean, onChange: (val: boolean) => void, label: string }) => (
@@ -32,8 +36,86 @@ const Toggle = ({ checked, onChange, label }: { checked: boolean, onChange: (val
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
     isOpen, onClose, isBatchMode, setIsBatchMode, showAllPreviews, setShowAllPreviews, 
     defaultAspectRatio, setDefaultAspectRatio, batchGenerationCount, setBatchGenerationCount,
-    devMode, setDevMode, confirmOnDelete, setConfirmOnDelete
+    devMode, setDevMode, confirmOnDelete, setConfirmOnDelete, useAINaming, setUseAINaming
  }) => {
+    const [storageMode, setStorageMode] = useState<StorageMode>('localstorage');
+    const [storageLocation, setStorageLocation] = useState<string>('');
+    const [storageSupported, setStorageSupported] = useState(false);
+    const [isChangingStorage, setIsChangingStorage] = useState(false);
+
+    useEffect(() => {
+        if (isOpen) {
+            loadStorageInfo();
+        }
+    }, [isOpen]);
+
+    const loadStorageInfo = async () => {
+        const info = await Storage.getStorageInfo();
+        setStorageMode(info.mode);
+        setStorageLocation(info.location || 'Browser Storage');
+        setStorageSupported(info.supported);
+    };
+
+    const handleChangeStorageLocation = async () => {
+        setIsChangingStorage(true);
+        const result = await Storage.changeStorageLocation();
+        setIsChangingStorage(false);
+        
+        if (result.success) {
+            await loadStorageInfo();
+        } else {
+            alert(result.error || 'Failed to change storage location');
+        }
+    };
+
+    const handleMigrateToFileSystem = async () => {
+        if (!confirm('This will migrate your data from browser storage to a file on your device. Continue?')) {
+            return;
+        }
+        
+        setIsChangingStorage(true);
+        const result = await Storage.migrateToFileSystem();
+        setIsChangingStorage(false);
+        
+        if (result.success) {
+            await loadStorageInfo();
+            alert('Successfully migrated to file system storage!');
+        } else {
+            alert(result.error || 'Failed to migrate to file system');
+        }
+    };
+
+    const handleExportData = async () => {
+        const result = await Storage.exportData();
+        if (!result.success) {
+            alert(result.error || 'Failed to export data');
+        }
+    };
+
+    const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!confirm('This will replace all your current data. Continue?')) {
+            e.target.value = '';
+            return;
+        }
+
+        const result = await Storage.importData(file);
+        if (result.success && result.data) {
+            const saveResult = await Storage.saveUsers(result.data);
+            if (saveResult.success) {
+                alert('Data imported successfully! Please refresh the page.');
+                window.location.reload();
+            } else {
+                alert(saveResult.error || 'Failed to save imported data');
+            }
+        } else {
+            alert(result.error || 'Failed to import data');
+        }
+        e.target.value = '';
+    };
+    
     if (!isOpen) return null;
 
     return (
@@ -64,7 +146,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                      <div className="space-y-4 border-t border-slate-700 pt-4">
                         <h3 className="font-bold text-lg text-slate-300">Workflow</h3>
-                         <Toggle label="Confirm on Delete" checked={confirmOnDelete} onChange={setConfirmOnDelete} />
+                        <Toggle label="Confirm on Delete" checked={confirmOnDelete} onChange={setConfirmOnDelete} />
+                        <Toggle 
+                            label="AI-Powered Prompt Naming" 
+                            checked={useAINaming} 
+                            onChange={setUseAINaming} 
+                        />
+                        <p className="text-xs text-slate-400">When enabled, AI will automatically generate descriptive names for your custom prompts based on their content.</p>
+                    </div>
+                     <div className="space-y-4 border-t border-slate-700 pt-4">
+                        <h3 className="font-bold text-lg text-slate-300">Storage</h3>
+                        <div className="space-y-3">
+                            <div className="bg-slate-900/50 p-3 rounded-md space-y-2">
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-400">Storage Type:</span>
+                                    <span className="text-white font-medium">{storageMode === 'filesystem' ? 'File System' : 'Browser Storage'}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-slate-400">Location:</span>
+                                    <span className="text-white font-medium text-right truncate ml-2">{storageLocation}</span>
+                                </div>
+                            </div>
+                            
+                            {storageSupported && (
+                                <>
+                                    {storageMode === 'localstorage' ? (
+                                        <button
+                                            onClick={handleMigrateToFileSystem}
+                                            disabled={isChangingStorage}
+                                            className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition"
+                                        >
+                                            {isChangingStorage ? 'Migrating...' : 'Switch to File System Storage'}
+                                        </button>
+                                    ) : (
+                                        <button
+                                            onClick={handleChangeStorageLocation}
+                                            disabled={isChangingStorage}
+                                            className="w-full bg-slate-600 hover:bg-slate-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition"
+                                        >
+                                            {isChangingStorage ? 'Changing...' : 'Change Storage Folder'}
+                                        </button>
+                                    )}
+                                    {storageMode === 'localstorage' && (
+                                        <p className="text-xs text-amber-400 bg-amber-900/30 p-2 rounded-md">
+                                            File system storage removes the 5-10MB browser limit and stores data on your device.
+                                        </p>
+                                    )}
+                                </>
+                            )}
+                            
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={handleExportData}
+                                    className="flex-1 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition text-sm"
+                                >
+                                    Export Backup
+                                </button>
+                                <label className="flex-1">
+                                    <input
+                                        type="file"
+                                        accept=".json"
+                                        onChange={handleImportData}
+                                        className="hidden"
+                                    />
+                                    <span className="block bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition text-sm text-center cursor-pointer">
+                                        Import Backup
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
                     </div>
                      <div className="space-y-4 border-t border-slate-700 pt-4">
                         <h3 className="font-bold text-lg text-slate-300">Advanced</h3>

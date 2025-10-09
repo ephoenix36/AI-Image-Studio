@@ -1,8 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ICONS } from '../constants';
 import { Icon } from './Icon';
 import type { User, Project, CustomPrompt } from '../types';
+import * as Storage from '../services/storageService';
 
 interface LoginScreenProps {
     onLogin: (user: User) => void;
@@ -19,7 +20,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         { id: crypto.randomUUID(), name: "Lifestyle Cafe Shot", version: "1.0", text: "Lifestyle shot of [subject] being used by a person in a modern cafe setting", tags: ["lifestyle", "cafe"], folderId: null, referenceAssetIds: [], createdAt: Date.now() },
     ];
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!username.trim() || !password.trim()) {
             setError("Username and password are required.");
@@ -27,8 +28,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         }
         setError('');
 
-        const savedUsers = localStorage.getItem('aiImageStudioUsers');
-        const users: User[] = savedUsers ? JSON.parse(savedUsers) : [];
+        const usersResult = await Storage.loadUsers();
+        const users: User[] = usersResult.data || [];
         const existingUser = users.find(u => u.username.toLowerCase() === username.toLowerCase());
 
         if (isRegistering) {
@@ -77,9 +78,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         }
     };
 
-    const handleGuestLogin = () => {
-        const savedUsers = localStorage.getItem('aiImageStudioUsers');
-        const users: User[] = savedUsers ? JSON.parse(savedUsers) : [];
+    const handleGuestLogin = async () => {
+        const usersResult = await Storage.loadUsers();
+        const users: User[] = usersResult.data || [];
         let guestUser = users.find(u => u.username === 'Guest');
 
         if (!guestUser) {

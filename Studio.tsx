@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 
 import { tips, MEDIA_CATEGORIES, ICONS, DEFAULT_DESCRIPTIONS, ASPECT_RATIOS } from './constants';
@@ -22,7 +21,8 @@ import { BatchEditorModal } from './components/BatchEditorModal';
 
 
 import { generateImage } from './services/geminiService';
-import { blobToBase64, sanitizeFilename, textToBlob, getResolution, useUndoableState } from './utils';
+import { blobToBase64, sanitizeFilename, textToBlob, getResolution, useUndoableState, isStorageNearQuota, getLocalStorageSizeFormatted } from './utils';
+import * as Storage from './services/storageService';
 
 
 // --- MODAL COMPONENTS ---
@@ -146,11 +146,14 @@ export default function Studio() {
     const [renameTarget, setRenameTarget] = useState<{ type: 'project' | 'folder', id: string | null, name: string, folderType?: 'prompt' | 'asset', parentId?: string | null } | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<{ type: 'project' | 'folder', id: string | null, name: string, folderType?: 'prompt' | 'asset' } | null>(null);
     const [deleteAssetsTarget, setDeleteAssetsTarget] = useState<string[] | null>(null);
+    const [movePromptTarget, setMovePromptTarget] = useState<string | null>(null);
+    const [batchMovePrompts, setBatchMovePrompts] = useState(false);
 
     // Settings state
     const [defaultAspectRatio, setDefaultAspectRatio] = useState("1:1");
     const [devMode, setDevMode] = useState(false);
     const [confirmOnDelete, setConfirmOnDelete] = useState(true);
+    const [useAINaming, setUseAINaming] = useState(false);
 
     // Collapsible state
     const [isControlsCollapsed, setIsControlsCollapsed] = useState(false);
@@ -222,91 +225,158 @@ export default function Studio() {
         lastPromptSelectedIndex.current = null;
     }, [allVisiblePromptIds]);
 
-
-    // Load user from localStorage on initial mount
+    // Initialize storage on first mount
     useEffect(() => {
-        const activeUser = localStorage.getItem('aiImageStudioActiveUser');
-        if (activeUser) {
-            const users: User[] = JSON.parse(localStorage.getItem('aiImageStudioUsers') || '[]');
-            let currentUser = users.find(u => u.username === activeUser);
-            if (currentUser) {
-                // Data migration for folder separation
-                if (typeof (currentUser as any).activeFolderId !== 'undefined') {
-                    const migratedUser = { ...currentUser };
-                    migratedUser.projects = migratedUser.projects.map(p => {
-                        let hasAssetFolder = false;
-                        const migratedFolders = p.folders.map(f => {
-                            if (!f.type) {
-                                (f as Folder).type = 'prompt';
-                            }
-                            if (f.type === 'asset') hasAssetFolder = true;
-                            return f as Folder;
-                        });
-
-                        if (!hasAssetFolder) {
-                            migratedFolders.push({ id: crypto.randomUUID(), name: 'All Images', parentId: null, createdAt: Date.now(), type: 'asset' });
-                        }
-                        return { ...p, folders: migratedFolders };
-                    });
-
-                    const firstAssetFolder = migratedUser.projects.find(p => p.id === migratedUser.activeProjectId)?.folders.find(f => f.type === 'asset');
-
-                    (migratedUser as any).activePromptFolderId = (currentUser as any).activeFolderId;
-                    (migratedUser as any).activeAssetFolderId = firstAssetFolder?.id || null;
-                    delete (migratedUser as any).activeFolderId;
-
-                    currentUser = migratedUser;
+        const initStorage = async () => {
+            const result = await Storage.initializeStorage();
+            if (result.mode === 'filesystem') {
+                const info = await Storage.getStorageInfo();
+                addNotification(`Using file system storage: ${info.location}`, 'info');
+            } else if (result.mode === 'localstorage') {
+                // Check if file system is supported but user cancelled
+                const info = await Storage.getStorageInfo();
+                if (info.supported) {
+                    addNotification('Using browser storage (5-10MB limit). Switch to file system storage in Settings for unlimited space.', 'info');
                 }
-
-                // Data migration for CustomPrompt structure
-                currentUser.projects = currentUser.projects.map(p => ({
-                    ...p,
-                    customPrompts: p.customPrompts.map(prompt => {
-                        if (prompt && typeof (prompt as any).name === 'undefined') {
-                            const oldPrompt = prompt as any;
-                            const name = oldPrompt.text.split(',')[0].trim();
-                            return {
-                                ...oldPrompt,
-                                name: name.length > 50 ? name.substring(0, 50) + '...' : name,
-                                version: '1.0',
-                                tags: [],
-                                createdAt: oldPrompt.createdAt || Date.now()
-                            };
-                        }
-                        return prompt as CustomPrompt;
-                    })
-                }));
-                
-                // Ensure activeProjectId and folder IDs are valid
-                const projectExists = currentUser.projects.some(p => p.id === currentUser.activeProjectId);
-                if (!projectExists) currentUser.activeProjectId = currentUser.projects[0]?.id || null;
-
-                const activeProj = currentUser.projects.find(p => p.id === currentUser.activeProjectId);
-                const promptFolderExists = activeProj?.folders.some(f => f.type === 'prompt' && f.id === currentUser.activePromptFolderId);
-                if (!promptFolderExists) currentUser.activePromptFolderId = activeProj?.folders.find(f => f.type === 'prompt')?.id || null;
-
-                const assetFolderExists = activeProj?.folders.some(f => f.type === 'asset' && f.id === currentUser.activeAssetFolderId);
-                if (!assetFolderExists) currentUser.activeAssetFolderId = activeProj?.folders.find(f => f.type === 'asset')?.id || null;
-                
-                setUser(currentUser, true);
             }
-        }
+        };
+        initStorage();
     }, []);
 
-    // Persist user data to localStorage whenever it changes
+    // Load user from storage on initial mount
     useEffect(() => {
-        if (user) {
-            const users: User[] = JSON.parse(localStorage.getItem('aiImageStudioUsers') || '[]');
-            const userIndex = users.findIndex(u => u.username === user.username);
-            const updatedUser = { ...user };
-            if (userIndex > -1) users[userIndex] = updatedUser;
-            else users.push(updatedUser);
+        const loadUserData = async () => {
+            const activeUserResult = await Storage.loadActiveUser();
+            const activeUser = activeUserResult.data;
             
-            localStorage.setItem('aiImageStudioUsers', JSON.stringify(users));
-            localStorage.setItem('aiImageStudioActiveUser', user.username);
-        } else {
-            localStorage.removeItem('aiImageStudioActiveUser');
-        }
+            if (activeUser) {
+                const usersResult = await Storage.loadUsers();
+                const users = usersResult.data || [];
+                let currentUser = users.find(u => u.username === activeUser);
+                if (currentUser) {
+                    // Data migration for folder separation
+                    if (typeof (currentUser as any).activeFolderId !== 'undefined') {
+                        const migratedUser = { ...currentUser };
+                        migratedUser.projects = migratedUser.projects.map(p => {
+                            let hasAssetFolder = false;
+                            const migratedFolders = p.folders.map(f => {
+                                if (!f.type) {
+                                    (f as Folder).type = 'prompt';
+                                }
+                                if (f.type === 'asset') hasAssetFolder = true;
+                                return f as Folder;
+                            });
+
+                            if (!hasAssetFolder) {
+                                migratedFolders.push({ id: crypto.randomUUID(), name: 'All Images', parentId: null, createdAt: Date.now(), type: 'asset' });
+                            }
+                            return { ...p, folders: migratedFolders };
+                        });
+
+                        const firstAssetFolder = migratedUser.projects.find(p => p.id === migratedUser.activeProjectId)?.folders.find(f => f.type === 'asset');
+
+                        (migratedUser as any).activePromptFolderId = (currentUser as any).activeFolderId;
+                        (migratedUser as any).activeAssetFolderId = firstAssetFolder?.id || null;
+                        delete (migratedUser as any).activeFolderId;
+
+                        currentUser = migratedUser;
+                    }
+
+                    // Data migration for CustomPrompt structure
+                    currentUser.projects = currentUser.projects.map(p => ({
+                        ...p,
+                        customPrompts: p.customPrompts.map(prompt => {
+                            if (prompt && typeof (prompt as any).name === 'undefined') {
+                                const oldPrompt = prompt as any;
+                                const name = oldPrompt.text.split(',')[0].trim();
+                                return {
+                                    ...oldPrompt,
+                                    name: name.length > 50 ? name.substring(0, 50) + '...' : name,
+                                    version: '1.0',
+                                    tags: [],
+                                    createdAt: oldPrompt.createdAt || Date.now()
+                                };
+                            }
+                            return prompt as CustomPrompt;
+                        })
+                    }));
+                    
+                    // Ensure activeProjectId and folder IDs are valid
+                    const projectExists = currentUser.projects.some(p => p.id === currentUser.activeProjectId);
+                    if (!projectExists) currentUser.activeProjectId = currentUser.projects[0]?.id || null;
+
+                    const activeProj = currentUser.projects.find(p => p.id === currentUser.activeProjectId);
+                    const promptFolderExists = activeProj?.folders.some(f => f.type === 'prompt' && f.id === currentUser.activePromptFolderId);
+                    if (!promptFolderExists) currentUser.activePromptFolderId = activeProj?.folders.find(f => f.type === 'prompt')?.id || null;
+
+                    const assetFolderExists = activeProj?.folders.some(f => f.type === 'asset' && f.id === currentUser.activeAssetFolderId);
+                    if (!assetFolderExists) currentUser.activeAssetFolderId = activeProj?.folders.find(f => f.type === 'asset')?.id || null;
+                    
+                    setUser(currentUser, true);
+                }
+            }
+        };
+        
+        loadUserData();
+    }, []);
+
+    // Persist user data to storage whenever it changes
+    useEffect(() => {
+        const persistUserData = async () => {
+            if (user) {
+                try {
+                    const usersResult = await Storage.loadUsers();
+                    const users = usersResult.data || [];
+                    const userIndex = users.findIndex(u => u.username === user.username);
+                    const updatedUser = { ...user };
+                    if (userIndex > -1) users[userIndex] = updatedUser;
+                    else users.push(updatedUser);
+                    
+                    // Save users
+                    const saveResult = await Storage.saveUsers(users);
+                    if (!saveResult.success) {
+                        console.error('Failed to save users:', saveResult.error);
+                        addNotification('Failed to save project data: ' + (saveResult.error || 'Unknown error'), 'error');
+                        return;
+                    }
+                    
+                    // Save active user
+                    const activeUserResult = await Storage.saveActiveUser(user.username);
+                    if (!activeUserResult.success) {
+                        console.error('Failed to save active user:', activeUserResult.error);
+                    }
+                } catch (error) {
+                    console.error('Error persisting user data:', error);
+                    addNotification('Failed to save project data. Your work may not be saved.', 'error');
+                }
+            } else {
+                await Storage.removeActiveUser();
+            }
+        };
+        
+        persistUserData();
+    }, [user]);
+    
+    // Monitor storage usage only when using localStorage mode
+    useEffect(() => {
+        const checkStorage = async () => {
+            const storageInfo = await Storage.getStorageInfo();
+            if (storageInfo.mode === 'localstorage' && isStorageNearQuota()) {
+                const size = getLocalStorageSizeFormatted();
+                addNotification(
+                    `Browser storage is running low (${size}). Consider switching to file system storage or exporting and deleting old images.`,
+                    'info'
+                );
+            }
+        };
+        
+        // Check storage when component mounts and when user changes
+        checkStorage();
+        
+        // Also check periodically (every 5 minutes)
+        const interval = setInterval(checkStorage, 5 * 60 * 1000);
+        
+        return () => clearInterval(interval);
     }, [user]);
     
     useEffect(() => {
@@ -368,6 +438,33 @@ export default function Studio() {
         setNotifications(prev => [...prev, { id, message, type }]);
         setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), 5000);
     }, []);
+
+    // Validate active folder IDs and reset if they no longer exist
+    useEffect(() => {
+        if (!activeProject || !user) return;
+        
+        const assetFolderIds = new Set(assetFolders.map(f => f.id));
+        const promptFolderIds = new Set(promptFolders.map(f => f.id));
+        
+        let needsUpdate = false;
+        const updates: Partial<User> = {};
+        
+        // Check if active asset folder still exists
+        if (activeAssetFolderId && !assetFolderIds.has(activeAssetFolderId)) {
+            updates.activeAssetFolderId = null;
+            needsUpdate = true;
+        }
+        
+        // Check if active prompt folder still exists
+        if (activePromptFolderId && !promptFolderIds.has(activePromptFolderId)) {
+            updates.activePromptFolderId = null;
+            needsUpdate = true;
+        }
+        
+        if (needsUpdate) {
+            setUser({ ...user, ...updates });
+        }
+    }, [activeProject, assetFolders, promptFolders, activeAssetFolderId, activePromptFolderId, user]);
 
     const handleStopGeneration = useCallback((promptId: string) => {
         if (loadingStates[promptId]?.controller) {
@@ -624,7 +721,12 @@ export default function Studio() {
         updateActiveProject(p => ({
             ...p,
             generatedAssets: p.generatedAssets.filter(asset => !assetIds.includes(asset.id)),
-            referenceAssets: p.referenceAssets.filter(asset => !assetIds.includes(asset.id))
+            referenceAssets: p.referenceAssets.filter(asset => !assetIds.includes(asset.id)),
+            // Also remove these asset IDs from all prompts that reference them
+            customPrompts: p.customPrompts.map(prompt => ({
+                ...prompt,
+                referenceAssetIds: prompt.referenceAssetIds.filter(id => !assetIds.includes(id))
+            }))
         }));
         setSelectedImageIds(prev => { const newSet = new Set(prev); assetIds.forEach(id => newSet.delete(id)); return newSet; });
         addNotification(`${assetIds.length} item(s) deleted.`, 'info');
@@ -644,7 +746,18 @@ export default function Studio() {
         if(confirmOnDelete && !confirm('Are you sure you want to delete this reference asset?')){
             return;
         }
-        updateActiveProject(p => ({...p, referenceAssets: p.referenceAssets.filter(asset => asset.id !== assetId)}));
+        
+        // Remove the reference asset
+        updateActiveProject(p => ({
+            ...p, 
+            referenceAssets: p.referenceAssets.filter(asset => asset.id !== assetId),
+            // Also remove this asset ID from all prompts that reference it
+            customPrompts: p.customPrompts.map(prompt => ({
+                ...prompt,
+                referenceAssetIds: prompt.referenceAssetIds.filter(id => id !== assetId)
+            }))
+        }));
+        
         addNotification("Reference asset deleted.", 'info');
         setLightboxConfig({ isOpen: false, asset: null, source: 'generated' });
     };
@@ -661,6 +774,31 @@ export default function Studio() {
         if (confirmOnDelete && !confirm(`Are you sure you want to delete this custom prompt?`)) return;
         updateActiveProject(p => ({...p, customPrompts: p.customPrompts.filter(prompt => prompt.id !== promptId)}));
         addNotification("Custom prompt deleted.", 'info');
+    };
+    
+    const handleMovePromptToFolder = (promptId: string, targetFolderId: string | null) => {
+        updateActiveProject(p => ({
+            ...p,
+            customPrompts: p.customPrompts.map(prompt => 
+                prompt.id === promptId ? {...prompt, folderId: targetFolderId} : prompt
+            )
+        }));
+        const folderName = targetFolderId ? promptFolders.find(f => f.id === targetFolderId)?.name || 'Unknown' : 'Home';
+        addNotification(`Prompt moved to "${folderName}".`, 'info');
+        setMovePromptTarget(null);
+    };
+
+    const handleBatchMovePromptsToFolder = (targetFolderId: string | null) => {
+        updateActiveProject(p => ({
+            ...p,
+            customPrompts: p.customPrompts.map(prompt => 
+                selectedPrompts.includes(prompt.id) ? {...prompt, folderId: targetFolderId} : prompt
+            )
+        }));
+        const folderName = targetFolderId ? promptFolders.find(f => f.id === targetFolderId)?.name || 'Unknown' : 'Home';
+        addNotification(`${selectedPrompts.length} prompt(s) moved to "${folderName}".`, 'info');
+        setBatchMovePrompts(false);
+        setSelectedPrompts([]);
     };
     
     const handleSaveEditedPrompt = (promptToSave: CustomPrompt) => {
@@ -717,7 +855,7 @@ export default function Studio() {
         updateActiveProject(p => ({...p, referenceAssets: p.referenceAssets.map(asset => asset.id === updatedAsset.id ? updatedAsset : asset)}));
     };
 
-    const handleUpdateFromViewer = (asset: GeneratedAsset | ReferenceAsset) => {
+    const handleUpdateFromViewer = (asset: GeneratedAsset | ReferenceImage) => {
         if ('imageUrl' in asset) {
             handleAssetUpdate(asset);
         } else {
@@ -779,8 +917,8 @@ export default function Studio() {
     };
 
 
-    const handleLogout = () => {
-        localStorage.removeItem('aiImageStudioActiveUser');
+    const handleLogout = async () => {
+        await Storage.removeActiveUser();
         setUser(null, true);
         setSubjectDescription("a high-end, solar-powered watch with a leather strap");
         setHasUserEditedDescription(false);
@@ -862,6 +1000,7 @@ export default function Studio() {
             });
             if(folderType === 'prompt' && activePromptFolderId === id) updateUser(u => ({...u, activePromptFolderId: null}));
             if(folderType === 'asset' && activeAssetFolderId === id) updateUser(u => ({...u, activeAssetFolderId: null}));
+            addNotification(`Folder "${name}" deleted.`, 'info');
         }
         setDeleteTarget(null);
     };
@@ -1254,6 +1393,7 @@ export default function Studio() {
                                 <button onClick={handleStopAll} className="flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-md transition text-base"><Icon path={ICONS.STOP}/> Stop All</button> :
                                 <>
                                 <button onClick={() => setIsReferenceSelectorOpen('__BATCH_MODE__')} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition text-base disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed"><Icon path={ICONS.ADD_REFERENCE}/> Refs</button>
+                                <button onClick={() => setBatchMovePrompts(true)} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition text-base disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed"><Icon path={ICONS.FOLDER}/> Move</button>
                                 <button onClick={() => handleBatchGenerate(selectedPrompts)} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold py-2 px-4 rounded-md transition text-base disabled:from-slate-500 disabled:to-slate-600 disabled:cursor-not-allowed"><Icon path={ICONS.SPARKLES}/> Generate ({selectedPrompts.length})</button>
                                 </>
                             )}
@@ -1271,11 +1411,11 @@ export default function Studio() {
                 </div>
             </header>
             
-            <div className="container mx-auto p-4 sm:p-6 md:p-8 flex-grow min-h-0 lg:overflow-y-hidden">
+            <div className="container mx-auto max-w-[2000px] p-4 sm:p-6 md:p-8 flex-grow min-h-0 lg:overflow-y-hidden">
                 <NotificationToast notifications={notifications} onDismiss={(id) => setNotifications(prev => prev.filter(n => n.id !== id))} />
                 
                 <div className="flex flex-col lg:flex-row gap-8 lg:h-full">
-                    <aside className="w-full lg:w-1/3 xl:w-1/4 bg-slate-800/50 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 flex flex-col">
+                    <aside className="w-full lg:w-2/5 xl:w-[520px] 2xl:w-[700px] bg-slate-800/50 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 flex flex-col">
                         <div className="lg:overflow-y-auto custom-scroll">
                             <details className="p-6" open={!isControlsCollapsed} onToggle={(e) => setIsControlsCollapsed(!e.currentTarget.open)}>
                                 <summary className="list-none cursor-pointer flex justify-between items-center group">
@@ -1308,23 +1448,23 @@ export default function Studio() {
                                     </ControlsSection>
                                     
                                         <ControlsSection title="Image Folder" defaultOpen={true}>
-                                        <label className="block text-sm font-medium text-slate-400 mb-1">Current Asset Folder</label>
-                                        <select value={activeAssetFolderId || ''} onChange={e => updateUser(u => ({...u, activeAssetFolderId: e.target.value || null}))} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 mb-2">
-                                            <option value="">Home (Root)</option>
-                                            {assetFolders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                        </select>
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <button onClick={() => handleFolderAction('create', null, 'asset')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">New</button>
-                                                <button onClick={() => activeAssetFolderId && handleFolderAction('rename', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md disabled:opacity-50">Rename</button>
+                                            <label className="block text-sm font-medium text-slate-400 mb-1">Current Asset Folder</label>
+                                            <select value={activeAssetFolderId || ''} onChange={e => updateUser(u => ({...u, activeAssetFolderId: e.target.value || null}))} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 mb-2">
+                                                                                               <option value="">Home (Root)</option>
+                                                {assetFolders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                            </select>
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <button onClick={() => handleFolderAction('create', null, 'asset')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">New</button>
+                                                    <button onClick={() => activeAssetFolderId && handleFolderAction('rename', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md disabled:opacity-50">Rename</button>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <Tooltip text="Import Assets" position="top"><button onClick={() => document.getElementById('file-upload')?.click()} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
+                                                    <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activeAssetFolderId, 'asset')} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
+                                                    <Tooltip text="Delete Folder" position="top"><button onClick={() => activeAssetFolderId && handleFolderAction('delete', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
+                                                </div>
                                             </div>
-                                            <div className="flex items-center gap-1">
-                                                <Tooltip text="Import Assets" position="top"><button onClick={() => document.getElementById('file-upload')?.click()} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activeAssetFolderId, 'asset')} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                <Tooltip text="Delete Folder" position="top"><button onClick={() => activeAssetFolderId && handleFolderAction('delete', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
-                                            </div>
-                                        </div>
-                                    </ControlsSection>
+                                        </ControlsSection>
 
                                     <ControlsSection title="Subject & Assets" defaultOpen={true}>
                                         <label className="block text-sm font-medium text-slate-400 mb-1">Media Type</label>
@@ -1335,7 +1475,22 @@ export default function Studio() {
                                         <label className="block text-sm font-medium text-slate-400 mb-1">Subject Description</label>
                                         <textarea rows={3} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 custom-scroll mb-4" value={subjectDescription} onChange={(e) => handleSubjectChange(e.target.value)} onPaste={handleSubjectPaste} placeholder="e.g., a high-end, solar-powered watch" />
 
-                                        <label className="block text-sm font-medium text-slate-400 mb-1">Reference Assets (Drop files or click)</label>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <label className="block text-sm font-medium text-slate-400">Reference Assets (Drop files or click)</label>
+                                            {visibleReferenceAssets.length > 0 && (
+                                                <button 
+                                                    onClick={() => {
+                                                        if (confirm(`Delete all ${visibleReferenceAssets.length} reference asset(s) in this folder?`)) {
+                                                            const assetIds = visibleReferenceAssets.map(a => a.id);
+                                                            handleConfirmDeleteAssets(assetIds);
+                                                        }
+                                                    }}
+                                                    className="text-xs text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 py-1 px-2 rounded transition"
+                                                >
+                                                    Delete All ({visibleReferenceAssets.length})
+                                                </button>
+                                            )}
+                                        </div>
                                         <div className={`relative border-2 border-dashed rounded-lg p-2 text-center transition-colors ${isDraggingOver ? 'border-blue-400 bg-blue-900/20' : 'border-slate-600 hover:border-slate-500'}`}
                                             onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOver(true); }} onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOver(false); }} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }} onDrop={handleDrop}>
                                             <Icon path={ICONS.DOWNLOAD} className="mx-auto h-8 w-8 text-slate-400" />
@@ -1486,6 +1641,7 @@ export default function Studio() {
                                         isBatchMode={isBatchMode}
                                         onSetAspectRatio={(promptId, ratio) => updateActiveProject(proj => ({...proj, customPrompts: proj.customPrompts.map(prompt => prompt.id === promptId ? {...prompt, aspectRatio: ratio} : prompt)}))}
                                         onAddReferenceClick={(promptId) => setIsReferenceSelectorOpen(promptId)}
+                                        onMoveToFolder={(promptId) => setMovePromptTarget(promptId)}
                                     />)}
                                 </div>
                             </details>
@@ -1635,6 +1791,8 @@ export default function Studio() {
                 setDevMode={setDevMode}
                 confirmOnDelete={confirmOnDelete}
                 setConfirmOnDelete={setConfirmOnDelete}
+                useAINaming={useAINaming}
+                setUseAINaming={setUseAINaming}
             />
 
             <ReferenceAssetSelectorModal
@@ -1670,6 +1828,74 @@ export default function Studio() {
             >
                 Are you sure you want to permanently delete the selected items? This action cannot be undone.
             </ConfirmationModal>
+
+            {/* Move Prompt Modal */}
+            {movePromptTarget && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-[80]" onClick={() => setMovePromptTarget(null)}>
+                    <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 w-full max-w-md" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 border-b border-slate-700">
+                            <h2 className="text-xl font-semibold">Move Prompt to Folder</h2>
+                            <p className="text-sm text-slate-400 mt-1">Select destination folder</p>
+                        </div>
+                        <div className="p-4 max-h-96 overflow-y-auto custom-scroll space-y-2">
+                            <button
+                                onClick={() => handleMovePromptToFolder(movePromptTarget, null)}
+                                className="w-full text-left p-3 rounded-md hover:bg-slate-700 transition flex items-center gap-2"
+                            >
+                                <Icon path={ICONS.FOLDER} className="w-5 h-5 text-cyan-400" />
+                                <span className="text-white">Home (Root)</span>
+                            </button>
+                            {promptFolders.map(folder => (
+                                <button
+                                    key={folder.id}
+                                    onClick={() => handleMovePromptToFolder(movePromptTarget, folder.id)}
+                                    className="w-full text-left p-3 rounded-md hover:bg-slate-700 transition flex items-center gap-2"
+                                >
+                                    <Icon path={ICONS.FOLDER} className="w-5 h-5 text-cyan-400" />
+                                    <span className="text-white">{folder.name}</span>
+                                </button>
+                            ))}
+                        </div>
+                        <div className="p-4 flex justify-end gap-3 bg-slate-900/40 rounded-b-2xl">
+                            <button onClick={() => setMovePromptTarget(null)} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-md transition">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Batch Move Prompts Modal */}
+            {batchMovePrompts && selectedPrompts.length > 0 && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-[80]" onClick={() => setBatchMovePrompts(false)}>
+                    <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 w-full max-w-md" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 border-b border-slate-700">
+                            <h2 className="text-xl font-semibold">Move {selectedPrompts.length} Prompt(s) to Folder</h2>
+                            <p className="text-sm text-slate-400 mt-1">Select destination folder</p>
+                        </div>
+                        <div className="p-4 max-h-96 overflow-y-auto custom-scroll space-y-2">
+                            <button
+                                onClick={() => handleBatchMovePromptsToFolder(null)}
+                                className="w-full text-left p-3 rounded-md hover:bg-slate-700 transition flex items-center gap-2"
+                            >
+                                <Icon path={ICONS.FOLDER} className="w-5 h-5 text-cyan-400" />
+                                <span className="text-white">Home (Root)</span>
+                            </button>
+                            {promptFolders.map(folder => (
+                                <button
+                                    key={folder.id}
+                                    onClick={() => handleBatchMovePromptsToFolder(folder.id)}
+                                    className="w-full text-left p-3 rounded-md hover:bg-slate-700 transition flex items-center gap-2"
+                                >
+                                    <Icon path={ICONS.FOLDER} className="w-5 h-5 text-cyan-400" />
+                                    <span className="text-white">{folder.name}</span>
+                                </button>
+                            ))}
+                        </div>
+                        <div className="p-4 flex justify-end gap-3 bg-slate-900/40 rounded-b-2xl">
+                            <button onClick={() => setBatchMovePrompts(false)} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-md transition">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

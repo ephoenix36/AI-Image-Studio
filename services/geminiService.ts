@@ -1,9 +1,41 @@
-// Fix: Import GenerateImagesResponse to correctly type the API response.
-import { GoogleGenAI, GenerateContentResponse, Modality, GenerateImagesResponse, Type } from '@google/genai';
+// Image generation using Gemini 2.5 Flash Image model
+import { GoogleGenAI, GenerateContentResponse, Modality, Type } from '@google/genai';
 import type { ReferenceImage } from '../types';
 import { WIZARD_SYSTEM_PROMPT } from '../constants';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Initialize GoogleGenAI with support for both Gemini Developer API and Vertex AI
+const useVertexAI = process.env.GOOGLE_GENAI_USE_VERTEXAI === 'true';
+const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+
+let ai: GoogleGenAI;
+
+if (useVertexAI) {
+  // Vertex AI configuration
+  const project = process.env.GOOGLE_CLOUD_PROJECT;
+  const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
+  
+  if (!project) {
+    // eslint-disable-next-line no-console
+    console.error('Vertex AI enabled but GOOGLE_CLOUD_PROJECT not set in environment');
+  } else {
+    // eslint-disable-next-line no-console
+    console.log(`Initializing with Vertex AI (project: ${project}, location: ${location})`);
+  }
+  
+  ai = new GoogleGenAI({
+    vertexai: true,
+    project,
+    location,
+  });
+} else {
+  // Gemini Developer API configuration
+  if (!apiKey) {
+    // eslint-disable-next-line no-console
+    console.warn('No GEMINI API key found in environment (GEMINI_API_KEY / API_KEY)');
+  }
+  
+  ai = new GoogleGenAI({ apiKey });
+}
 
 async function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -37,9 +69,34 @@ export async function generateImage(
     if (signal.aborted) throw new DOMException('Aborted by user', 'AbortError');
 
     if (referenceImages.length > 0) {
-      const imageParts = referenceImages.map(img => ({
-        inlineData: { data: img.base64, mimeType: img.mimeType },
-      }));
+      // Clean and validate base64 data
+      const imageParts = referenceImages
+        .filter(img => img.base64) // Filter out images without base64 data
+        .map(img => {
+          // Remove any whitespace or newlines from base64 string
+          const cleanBase64 = img.base64.replace(/\s/g, '');
+          
+          // Validate that it's actually base64
+          if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleanBase64)) {
+            console.warn(`Invalid base64 data for image ${img.id}, attempting to clean...`);
+            // If base64 has data URL prefix, extract it
+            const match = cleanBase64.match(/^data:[^;]+;base64,(.+)$/);
+            if (match) {
+              return {
+                inlineData: { data: match[1], mimeType: img.mimeType },
+              };
+            }
+          }
+          
+          return {
+            inlineData: { data: cleanBase64, mimeType: img.mimeType },
+          };
+        });
+
+      // Check if we have any valid images after filtering
+      if (imageParts.length === 0) {
+        return { error: 'Reference images do not have valid data. Please re-upload the reference images.' };
+      }
 
       const apiPromise = ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
@@ -65,21 +122,28 @@ export async function generateImage(
       return { error: 'Image-to-image generation did not return an image.' };
 
     } else {
-      const apiPromise = ai.models.generateImages({
-        model: 'imagen-4.0-generate-001',
-        prompt,
-        config: { 
-            numberOfImages: 1, 
-            aspectRatio: aspectRatio as "1:1" | "3:4" | "4:3" | "9:16" | "16:9" 
+      // Use Gemini 2.5 Flash Image model for text-to-image generation
+      const apiPromise = ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [{ text: prompt }],
         },
+        config: { 
+          responseModalities: [Modality.IMAGE, Modality.TEXT]
+        }
       });
-      // Fix: Explicitly type the response to resolve property access errors.
-      const response: GenerateImagesResponse = await withAbort(apiPromise, signal);
-
-      if (response.generatedImages && response.generatedImages.length > 0) {
-        return { imageUrl: `data:image/png;base64,${response.generatedImages[0].image.imageBytes}` };
+      
+      const response: GenerateContentResponse = await withAbort(apiPromise, signal);
+      
+      for (const part of response.candidates[0].content.parts) {
+        if (part.inlineData) {
+          return { imageUrl: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` };
+        }
       }
-      return { error: 'Text-to-image generation failed to produce an image.' };
+      for (const part of response.candidates[0].content.parts) {
+        if(part.text) return { error: `AI responded: "${part.text.substring(0, 150)}..."` };
+      }
+      return { error: 'Text-to-image generation did not return an image.' };
     }
   } catch (error: any) {
     if (error.name === 'AbortError') throw error;
