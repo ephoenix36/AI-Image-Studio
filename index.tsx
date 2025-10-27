@@ -2,6 +2,8 @@
 import React, { Component, ErrorInfo } from 'react';
 import ReactDOM from 'react-dom/client';
 import Studio from './Studio';
+// PHASE1-PRODUCTION: Import Tailwind CSS styles
+import './index.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

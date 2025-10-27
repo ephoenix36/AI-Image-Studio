@@ -14,6 +14,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const [password, setPassword] = useState('');
     const [isRegistering, setIsRegistering] = useState(false);
     const [error, setError] = useState('');
+    // PHASE1-UX: Added password visibility toggle state
+    const [showPassword, setShowPassword] = useState(false);
 
     const defaultPrompts: CustomPrompt[] = [
         { id: crypto.randomUUID(), name: "Clean Studio Shot", version: "1.0", text: "High-quality photo of [subject], clean white background, studio lighting", tags: ["studio", "product"], folderId: null, referenceAssetIds: [], createdAt: Date.now() },
@@ -120,21 +122,43 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 mb-2">Welcome!</h1>
                 <p className="text-slate-400 mb-6">{isRegistering ? "Create an account to start." : "Enter your credentials to continue."}</p>
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <input
-                        type="text"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        placeholder="Username"
-                        className="w-full bg-slate-900/50 text-white text-center text-lg rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition px-4 py-3"
-                        autoFocus
-                    />
-                    <input
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="Password"
-                        className="w-full bg-slate-900/50 text-white text-center text-lg rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition px-4 py-3"
-                    />
+                    {/* PHASE1-A11Y: Added proper labels for form inputs */}
+                    <div className="text-left">
+                        <label htmlFor="login-username" className="sr-only">Username</label>
+                        <input
+                            id="login-username"
+                            type="text"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            placeholder="Username"
+                            autoComplete="username"
+                            className="w-full bg-slate-900/50 text-white text-center text-lg rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition px-4 py-3"
+                            autoFocus
+                        />
+                    </div>
+                    <div className="text-left">
+                        <label htmlFor="login-password" className="sr-only">Password</label>
+                        {/* PHASE1-UX: Added password visibility toggle button */}
+                        <div className="relative">
+                            <input
+                                id="login-password"
+                                type={showPassword ? "text" : "password"}
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="Password"
+                                autoComplete={isRegistering ? "new-password" : "current-password"}
+                                className="w-full bg-slate-900/50 text-white text-center text-lg rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition px-4 py-3 pr-12"
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                aria-label={showPassword ? "Hide password" : "Show password"}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition p-1"
+                            >
+                                <Icon path={showPassword ? ICONS.EYE_OFF : ICONS.EYE} />
+                            </button>
+                        </div>
+                    </div>
                     {error && <p className="text-red-400 text-sm">{error}</p>}
                     <button 
                         type="submit"

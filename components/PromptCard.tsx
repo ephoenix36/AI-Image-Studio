@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { GeneratedAsset, CustomPrompt, CustomPromptHistory } from '../types';
 import { ICONS, ASPECT_RATIOS } from '../constants';
@@ -124,14 +123,15 @@ export const PromptCard: React.FC<PromptCardProps> = ({
             <div className="p-4 flex-1 flex flex-col">
                 <div className="relative flex-1">
                     <div className="absolute top-0 right-0 flex flex-col items-end gap-2 opacity-0 group-hover/card:opacity-100 transition-opacity z-10">
-                        <Tooltip text="Copy prompt"><button onClick={() => onCopy(promptText)} className="p-1.5 text-slate-300 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.COPY} className="w-4 h-4"/></button></Tooltip>
-                        {!isEditing && isCustom && onMoveToFolder && <Tooltip text="Move to folder"><button onClick={() => onMoveToFolder(prompt.id)} className="p-1.5 text-slate-300 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.FOLDER} className="w-4 h-4"/></button></Tooltip>}
-                        {!isEditing && isCustom && <Tooltip text="Edit"><button onClick={() => onStartEdit(displayedData as CustomPrompt)} className="p-1.5 text-slate-300 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.EDIT} className="w-4 h-4"/></button></Tooltip>}
-                        {!isEditing && isCustom && !viewingHistoryItem && <Tooltip text="Delete"><button onClick={() => onDelete(prompt.id)} className="p-1.5 text-red-400 hover:text-red-300 bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.TRASH} className="w-4 h-4"/></button></Tooltip>}
+                        {/* PHASE1-A11Y: Added aria-labels to prompt card action buttons */}
+                        <Tooltip text="Copy prompt"><button onClick={() => onCopy(promptText)} aria-label="Copy prompt text to clipboard" className="p-1.5 text-slate-300 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.COPY} className="w-4 h-4"/></button></Tooltip>
+                        {!isEditing && isCustom && onMoveToFolder && <Tooltip text="Move to folder"><button onClick={() => onMoveToFolder(prompt.id)} aria-label="Move prompt to another folder" className="p-1.5 text-slate-300 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.FOLDER} className="w-4 h-4"/></button></Tooltip>}
+                        {!isEditing && isCustom && <Tooltip text="Edit"><button onClick={() => onStartEdit(displayedData as CustomPrompt)} aria-label="Edit this prompt" className="p-1.5 text-slate-300 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.EDIT} className="w-4 h-4"/></button></Tooltip>}
+                        {!isEditing && isCustom && !viewingHistoryItem && <Tooltip text="Delete"><button onClick={() => onDelete(prompt.id)} aria-label="Delete this prompt" className="p-1.5 text-red-400 hover:text-red-300 bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.TRASH} className="w-4 h-4"/></button></Tooltip>}
                         {isEditing && (
                             <>
-                                <Tooltip text="Save"><button onClick={() => onSaveEdit(editingState!)} className="p-1.5 text-green-400 hover:text-green-300 bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.CHECK} className="w-4 h-4"/></button></Tooltip>
-                                <Tooltip text="Cancel"><button onClick={onCancelEdit} className="p-1.5 text-slate-300 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.CLOSE} className="w-4 h-4"/></button></Tooltip>
+                                <Tooltip text="Save"><button onClick={() => onSaveEdit(editingState!)} aria-label="Save prompt changes" className="p-1.5 text-green-400 hover:text-green-300 bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.CHECK} className="w-4 h-4"/></button></Tooltip>
+                                <Tooltip text="Cancel"><button onClick={onCancelEdit} aria-label="Cancel editing" className="p-1.5 text-slate-300 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.CLOSE} className="w-4 h-4"/></button></Tooltip>
                             </>
                         )}
                     </div>
@@ -144,7 +144,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
                                     type="text" 
                                     value={editingState.name} 
                                     onChange={e => onUpdateEditingPrompt({ ...editingState, name: e.target.value })}
-                                    className="w-full bg-slate-900/60 text-white rounded-md border border-slate-700 p-1 text-sm mt-1"
+                                    className="w-full bg-slate-900/60 text-white rounded-md border border-slate-700 p-1 text-sm mt-1 overflow-wrap-anywhere"
                                     autoFocus
                                 />
                             </div>
@@ -154,7 +154,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
                                     type="text" 
                                     value={editingState.tags.join(', ')} 
                                     onChange={e => onUpdateEditingPrompt({ ...editingState, tags: e.target.value.split(',').map(t => t.trim()) })}
-                                    className="w-full bg-slate-900/60 text-white rounded-md border border-slate-700 p-1 text-sm mt-1"
+                                    className="w-full bg-slate-900/60 text-white rounded-md border border-slate-700 p-1 text-sm mt-1 overflow-wrap-anywhere"
                                 />
                             </div>
                              <div>
@@ -163,7 +163,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
                                     value={editingState.text}
                                     onChange={e => onUpdateEditingPrompt({ ...editingState, text: e.target.value })}
                                     rows={4}
-                                    className="w-full bg-slate-900/60 text-white rounded-md border border-slate-700 p-2 text-sm mt-1 custom-scroll"
+                                    className="w-full bg-slate-900/60 text-white rounded-md border border-slate-700 p-2 text-sm mt-1 custom-scroll overflow-wrap-anywhere"
                                 />
                             </div>
                         </div>
@@ -217,7 +217,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
                                             {displayedData.tags.map(tag => tag && <span key={tag} className="text-xs bg-cyan-900/50 text-cyan-300 px-2 py-0.5 rounded-full">{tag}</span>)}
                                         </div>
                                     )}
-                                    <div className="text-slate-300 text-sm leading-relaxed p-2 bg-slate-900/40 rounded-md max-h-24 overflow-y-auto custom-scroll border border-slate-700/50 transition-all duration-300">
+                                    <div className="text-slate-300 text-sm leading-relaxed p-2 bg-slate-900/40 rounded-md max-h-24 overflow-y-auto custom-scroll border border-slate-700/50 transition-all duration-300 overflow-wrap-anywhere">
                                         {promptText.split(/(\[subject\])/).map((part, i) => part === '[subject]' ? <span key={i} className="text-cyan-400 font-bold bg-slate-700/80 px-1.5 py-0.5 rounded">{subjectDescription || '[subject]'}</span> : part)}
                                     </div>
                                 </div>
@@ -287,20 +287,20 @@ export const PromptCard: React.FC<PromptCardProps> = ({
             
                 <div className="mt-auto flex items-center gap-2 flex-wrap">
                     <Tooltip text="Generate image" position="top">
-                        <button onClick={() => onGenerate(promptText, prompt.id)} disabled={isLoading || isEditing} className={`flex-1 h-9 flex items-center justify-center gap-2 text-sm text-white font-bold px-3 rounded-md transition disabled:bg-slate-600 disabled:cursor-wait ${isPromptSelected && isBatchMode ? 'bg-gradient-to-r from-amber-500 to-orange-600' : 'bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400'}`}>
+                        <button onClick={() => onGenerate(promptText, prompt.id)} disabled={isLoading || isEditing} aria-label="Generate image from this prompt" className={`flex-1 h-9 flex items-center justify-center gap-2 text-sm text-white font-bold px-3 rounded-md transition disabled:bg-slate-600 disabled:cursor-wait ${isPromptSelected && isBatchMode ? 'bg-gradient-to-r from-amber-500 to-orange-600' : 'bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400'}`}>
                            <Icon path={ICONS.SPARKLES} className="w-5 h-5"/>
                            <span className="pl-1">Generate</span>
                         </button>
                     </Tooltip>
                     
                     <Tooltip text="Aspect Ratio" position="top">
-                        <select value={aspectRatio || "1:1"} onChange={e => onSetAspectRatio(prompt.id, e.target.value)} disabled={isEditing || !!viewingHistoryItem} className={`h-9 text-sm font-semibold rounded-md transition text-white px-2 appearance-none text-center ${isPromptSelected && isBatchMode ? 'bg-orange-700 border-orange-600' : 'bg-slate-600 border-slate-500 hover:bg-slate-500'} disabled:opacity-50`}>
+                        <select value={aspectRatio || "1:1"} onChange={e => onSetAspectRatio(prompt.id, e.target.value)} disabled={isEditing || !!viewingHistoryItem} aria-label="Select aspect ratio for generated image" className={`h-9 text-sm font-semibold rounded-md transition text-white px-2 appearance-none text-center ${isPromptSelected && isBatchMode ? 'bg-orange-700 border-orange-600' : 'bg-slate-600 border-slate-500 hover:bg-slate-500'} disabled:opacity-50`}>
                             {ASPECT_RATIOS.map(r => <option key={r} value={r} className="bg-slate-800">{r}</option>)}
                         </select>
                     </Tooltip>
 
                     <Tooltip text="Add/View References" position="top">
-                        <button onClick={() => onAddReferenceClick(prompt.id)} disabled={isEditing || !!viewingHistoryItem} className={`h-9 w-9 flex items-center justify-center rounded-md transition relative ${isPromptSelected && isBatchMode ? 'bg-orange-700 border-orange-600' : 'bg-slate-600 border-slate-500 hover:bg-slate-500'} ${hasReferences ? 'ring-2 ring-cyan-400' : ''} disabled:opacity-50`}>
+                        <button onClick={() => onAddReferenceClick(prompt.id)} disabled={isEditing || !!viewingHistoryItem} aria-label={`${hasReferences ? 'View' : 'Add'} reference images for this prompt`} className={`h-9 w-9 flex items-center justify-center rounded-md transition relative ${isPromptSelected && isBatchMode ? 'bg-orange-700 border-orange-600' : 'bg-slate-600 border-slate-500 hover:bg-slate-500'} ${hasReferences ? 'ring-2 ring-cyan-400' : ''} disabled:opacity-50`}>
                            <Icon path={ICONS.ADD_REFERENCE} className="w-5 h-5"/>
                            {hasReferences && <span className="absolute -top-1 -right-1 bg-cyan-400 text-slate-900 text-xs font-bold rounded-full h-4 w-4 flex items-center justify-center">{referenceAssetIds.length}</span>}
                         </button>

@@ -1374,7 +1374,7 @@ export default function Studio() {
     let promptCardIndex = 0;
 
     return (
-        <div className="bg-slate-900 text-slate-200 h-screen font-sans bg-aurora flex flex-col">
+        <div className="bg-slate-900 text-slate-200 h-screen font-sans bg-aurora flex flex-col overflow-x-hidden">
              <input type="file" ref={fileInputRef} onChange={handleFileImport} accept=".aistudio.zip,.zip" style={{ display: 'none' }} />
             <style>{`@keyframes aurora-glow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } } .bg-aurora { background-size: 400% 400%; animation: aurora-glow 20s ease infinite; background-color: #0f172a; background-image: radial-gradient(at 27% 37%, hsla(215, 98%, 61%, 0.1) 0px, transparent 50%), radial-gradient(at 97% 21%, hsla(125, 98%, 72%, 0.1) 0px, transparent 50%), radial-gradient(at 52% 99%, hsla(355, 98%, 61%, 0.1) 0px, transparent 50%), radial-gradient(at 10% 29%, hsla(256, 96%, 67%, 0.1) 0px, transparent 50%), radial-gradient(at 97% 96%, hsla(38, 60%, 74%, 0.1) 0px, transparent 50%), radial-gradient(at 33% 50%, hsla(222, 67%, 73%, 0.1) 0px, transparent 50%), radial-gradient(at 79% 53%, hsla(343, 68%, 79%, 0.1) 0px, transparent 50%); } .custom-scroll { scrollbar-width: thin; scrollbar-color: #475569 transparent; } .custom-scroll::-webkit-scrollbar { width: 8px; } .custom-scroll::-webkit-scrollbar-track { background: transparent; } .custom-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 6px; } .custom-scroll::-webkit-scrollbar-thumb:hover { background: #64748b; } summary::marker { content: ""; }`}</style>
             
@@ -1384,8 +1384,9 @@ export default function Studio() {
                         <div className="flex items-center gap-4">
                             <h1 className="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-tight">AI Image Studio</h1>
                             <div className="flex items-center gap-2 p-1 bg-slate-800 rounded-full">
-                                <Tooltip text={`Undo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Z)`}><button onClick={undoUser} disabled={!canUndo} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.UNDO} /></button></Tooltip>
-                                <Tooltip text={`Redo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Y)`}><button onClick={redoUser} disabled={!canRedo} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.REDO} /></button></Tooltip>
+                                {/* PHASE1-A11Y: Added aria-label for screen reader accessibility */}
+                                <Tooltip text={`Undo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Z)`}><button onClick={undoUser} disabled={!canUndo} aria-label={`Undo (${navigator.platform.toUpperCase().includes('MAC') ? 'Command' : 'Ctrl'}+Z)`} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.UNDO} /></button></Tooltip>
+                                <Tooltip text={`Redo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Y)`}><button onClick={redoUser} disabled={!canRedo} aria-label={`Redo (${navigator.platform.toUpperCase().includes('MAC') ? 'Command' : 'Ctrl'}+Y)`} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.REDO} /></button></Tooltip>
                             </div>
                         </div>
                             <div className="flex items-center gap-3">
@@ -1394,7 +1395,7 @@ export default function Studio() {
                                 <>
                                 <button onClick={() => setIsReferenceSelectorOpen('__BATCH_MODE__')} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition text-base disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed"><Icon path={ICONS.ADD_REFERENCE}/> Refs</button>
                                 <button onClick={() => setBatchMovePrompts(true)} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition text-base disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed"><Icon path={ICONS.FOLDER}/> Move</button>
-                                <button onClick={() => handleBatchGenerate(selectedPrompts)} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold py-2 px-4 rounded-md transition text-base disabled:from-slate-500 disabled:to-slate-600 disabled:cursor-not-allowed"><Icon path={ICONS.SPARKLES}/> Generate ({selectedPrompts.length})</button>
+                                <button onClick={() => handleBatchGenerate(selectedPrompts)} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold py-2 px-4 rounded-md transition disabled:from-slate-500 disabled:to-slate-600 disabled:cursor-not-allowed"><Icon path={ICONS.SPARKLES}/> Generate ({selectedPrompts.length})</button>
                                 </>
                             )}
                             <button onClick={() => setIsGalleryOpen(true)} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition"><Icon path={ICONS.GRID}/> Gallery ({activeProject?.generatedAssets.length || 0})</button>
@@ -1404,8 +1405,9 @@ export default function Studio() {
                             </a>
                             <span className="text-slate-400 hidden md:block">|</span>
                             <div className="text-sm text-slate-300">Welcome, <span className="font-bold text-white">{user.username}</span></div>
-                            <Tooltip text="Settings"><button onClick={() => setIsSettingsOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-full"><Icon path={ICONS.SETTINGS} /></button></Tooltip>
-                            <Tooltip text="Logout"><button onClick={handleLogout} className="p-2 text-slate-400 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-full"><Icon path={ICONS.LOGOUT} /></button></Tooltip>
+                            {/* PHASE1-A11Y: Added aria-labels to Settings and Logout buttons */}
+                            <Tooltip text="Settings"><button onClick={() => setIsSettingsOpen(true)} aria-label="Open settings" className="p-2 text-slate-400 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-full"><Icon path={ICONS.SETTINGS} /></button></Tooltip>
+                            <Tooltip text="Logout"><button onClick={handleLogout} aria-label="Logout from studio" className="p-2 text-slate-400 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-full"><Icon path={ICONS.LOGOUT} /></button></Tooltip>
                         </div>
                     </div>
                 </div>
@@ -1415,8 +1417,8 @@ export default function Studio() {
                 <NotificationToast notifications={notifications} onDismiss={(id) => setNotifications(prev => prev.filter(n => n.id !== id))} />
                 
                 <div className="flex flex-col lg:flex-row gap-8 lg:h-full">
-                    <aside className="w-full lg:w-2/5 xl:w-[520px] 2xl:w-[700px] bg-slate-800/50 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 flex flex-col">
-                        <div className="lg:overflow-y-auto custom-scroll">
+                    <aside className="w-full lg:w-2/5 xl:w-[480px] 2xl:w-[650px] bg-slate-800/50 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 flex flex-col overflow-x-hidden">
+                        <div className="lg:overflow-y-auto custom-scroll overflow-x-hidden">
                             <details className="p-6" open={!isControlsCollapsed} onToggle={(e) => setIsControlsCollapsed(!e.currentTarget.open)}>
                                 <summary className="list-none cursor-pointer flex justify-between items-center group">
                                     <h2 className="text-2xl font-semibold text-white">Studio Controls</h2>
@@ -1436,13 +1438,14 @@ export default function Studio() {
                                         </select>
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-2">
-                                                <button onClick={() => setRenameTarget({type: 'project', id: null, name: 'My New Project'})} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">New</button>
-                                                <button onClick={() => activeProject && setRenameTarget({ type: 'project', id: activeProject.id, name: activeProject.name })} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">Rename</button>
+                                                <button onClick={() => setRenameTarget({type: 'project', id: null, name: 'My New Project'})} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md">New</button>
+                                                <button onClick={() => activeProject && setRenameTarget({ type: 'project', id: activeProject.id, name: activeProject.name })} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md">Rename</button>
                                             </div>
                                             <div className="flex items-center gap-1">
-                                                <Tooltip text="Import Project" position="top"><button onClick={handleImportClick} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                <Tooltip text="Export Project" position="top"><button onClick={handleExportProject} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                <Tooltip text="Delete Project" position="top"><button onClick={() => activeProject && setDeleteTarget({ type: 'project', id: activeProject.id, name: activeProject.name })} disabled={user.projects.length <= 1} className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
+                                                {/* PHASE1-A11Y: Added aria-labels to Project management buttons */}
+                                                <Tooltip text="Import Project" position="top"><button onClick={handleImportClick} aria-label="Import project from file" className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
+                                                <Tooltip text="Export Project" position="top"><button onClick={handleExportProject} aria-label="Export project to file" className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
+                                                <Tooltip text="Delete Project" position="top"><button onClick={() => activeProject && setDeleteTarget({ type: 'project', id: activeProject.id, name: activeProject.name })} disabled={user.projects.length <= 1} aria-label="Delete current project" className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
                                             </div>
                                         </div>
                                     </ControlsSection>
@@ -1455,13 +1458,14 @@ export default function Studio() {
                                             </select>
                                             <div className="flex items-center justify-between">
                                                 <div className="flex items-center gap-2">
-                                                    <button onClick={() => handleFolderAction('create', null, 'asset')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">New</button>
-                                                    <button onClick={() => activeAssetFolderId && handleFolderAction('rename', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md disabled:opacity-50">Rename</button>
+                                                    <button onClick={() => handleFolderAction('create', null, 'asset')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md">New</button>
+                                                    <button onClick={() => activeAssetFolderId && handleFolderAction('rename', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md disabled:opacity-50">Rename</button>
                                                 </div>
                                                 <div className="flex items-center gap-1">
-                                                    <Tooltip text="Import Assets" position="top"><button onClick={() => document.getElementById('file-upload')?.click()} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                    <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activeAssetFolderId, 'asset')} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                    <Tooltip text="Delete Folder" position="top"><button onClick={() => activeAssetFolderId && handleFolderAction('delete', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
+                                                    {/* PHASE1-A11Y: Added aria-labels to Asset folder management buttons */}
+                                                    <Tooltip text="Import Assets" position="top"><button onClick={() => document.getElementById('file-upload')?.click()} aria-label="Import assets from files" className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
+                                                    <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activeAssetFolderId, 'asset')} aria-label="Export asset folder" className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
+                                                    <Tooltip text="Delete Folder" position="top"><button onClick={() => activeAssetFolderId && handleFolderAction('delete', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} aria-label="Delete current asset folder" className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
                                                 </div>
                                             </div>
                                         </ControlsSection>
@@ -1473,7 +1477,7 @@ export default function Studio() {
                                         </select>
 
                                         <label className="block text-sm font-medium text-slate-400 mb-1">Subject Description</label>
-                                        <textarea rows={3} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 custom-scroll mb-4" value={subjectDescription} onChange={(e) => handleSubjectChange(e.target.value)} onPaste={handleSubjectPaste} placeholder="e.g., a high-end, solar-powered watch" />
+                                        <textarea rows={3} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 custom-scroll mb-4 overflow-wrap-anywhere" value={subjectDescription} onChange={(e) => handleSubjectChange(e.target.value)} onPaste={handleSubjectPaste} placeholder="e.g., a high-end, solar-powered watch" />
 
                                         <div className="flex items-center justify-between mb-1">
                                             <label className="block text-sm font-medium text-slate-400">Reference Assets (Drop files or click)</label>
@@ -1522,7 +1526,7 @@ export default function Studio() {
                         </div>
                     </aside>
                     
-                    <main className="w-full lg:flex-1 min-w-0 flex flex-col">
+                    <main className="w-full lg:flex-1 min-w-0 flex flex-col overflow-x-hidden">
                         <div className="lg:overflow-y-auto custom-scroll">
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                                 <div>
@@ -1532,12 +1536,14 @@ export default function Studio() {
                                 <div className="flex items-center gap-2 self-end sm:self-center">
                                     <div className="relative">
                                         <Icon path={ICONS.SEARCH} className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                        {/* PHASE1-A11Y: Added aria-label for search input */}
                                         <input 
                                             type="text" 
                                             placeholder="Search prompts..." 
                                             value={searchTerm} 
                                             onChange={e => setSearchTerm(e.target.value)} 
-                                            className="bg-slate-800/60 border border-slate-700 rounded-full pl-10 pr-4 py-2 w-64 sm:w-96 text-lg focus:ring-cyan-500 focus:border-cyan-500" 
+                                            aria-label="Search prompts by name or tags"
+                                            className="bg-slate-800/60 border border-slate-700 rounded-full pl-10 pr-4 py-2 w-48 sm:w-72 text-lg focus:ring-cyan-500 focus:border-cyan-500" 
                                         />
                                     </div>
                                 </div>
@@ -1550,11 +1556,12 @@ export default function Studio() {
                                         <option value="">My Prompts (Root)</option>
                                         {promptFolders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                     </select>
-                                    <button onClick={() => handleFolderAction('create', null, 'prompt')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">New</button>
-                                    <button onClick={() => activePromptFolderId && handleFolderAction('rename', activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md disabled:opacity-50">Rename</button>
-                                    <Tooltip text="Import Prompts" position="top"><button onClick={handleImportClick} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
-                                    <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
-                                    <Tooltip text="Delete Folder" position="top"><button onClick={() => activePromptFolderId && handleFolderAction('delete', activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
+                                    <button onClick={() => handleFolderAction('create', null, 'prompt')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md">New</button>
+                                    <button onClick={() => activePromptFolderId && handleFolderAction('rename', activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md disabled:opacity-50">Rename</button>
+                                    {/* PHASE1-A11Y: Added aria-labels to Prompt folder management buttons */}
+                                    <Tooltip text="Import Prompts" position="top"><button onClick={handleImportClick} aria-label="Import prompts from file" className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
+                                    <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} aria-label="Export prompt folder" className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
+                                    <Tooltip text="Delete Folder" position="top"><button onClick={() => activePromptFolderId && handleFolderAction('delete', activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} aria-label="Delete current prompt folder" className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
                                 </div>
                             </div>
 
@@ -1598,7 +1605,7 @@ export default function Studio() {
                                                 onChange={e => setNewPrompt(e.target.value)} 
                                                 placeholder="Type or paste one or more prompts here, separated by new lines. Use [subject] as a placeholder." 
                                                 rows={4} 
-                                                className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 custom-scroll"
+                                                className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 custom-scroll overflow-wrap-anywhere"
                                             ></textarea>
                                             <button 
                                                 onClick={() => { 
@@ -1611,7 +1618,7 @@ export default function Studio() {
                                                     } 
                                                 }} 
                                                 disabled={promptsToAddCount === 0}
-                                                className="mt-2 flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                                className="mt-2 flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 px-3 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                                 <Icon path={ICONS.PLUS}/> Add {promptsToAddCount > 0 ? promptsToAddCount : ''} Prompt{promptsToAddCount !== 1 ? 's' : ''}
                                             </button>

@@ -39,10 +39,14 @@ export async function requestStorageDirectory(): Promise<FileSystemDirectoryHand
         
         return handle;
     } catch (error) {
+        // PHASE1-FIX: Improved error handling for File System Access API
         if ((error as Error).name === 'AbortError') {
             console.log('User cancelled directory selection');
+        } else if ((error as Error).name === 'SecurityError') {
+            console.warn('File System Access API requires user gesture or is not allowed');
         } else {
-            console.error('Error requesting directory:', error);
+            // Silently fail - this is expected when the API is called without user interaction
+            console.debug('File System Access API not available:', (error as Error).message);
         }
         return null;
     }
@@ -81,22 +85,27 @@ async function getStoredDirectoryHandle(): Promise<FileSystemDirectoryHandle | n
         });
         
         if (handle) {
-            // Verify we still have permission
-            const permission = await (handle as any).queryPermission({ mode: 'readwrite' });
-            if (permission === 'granted') {
-                directoryHandle = handle;
-                return handle;
-            } else {
-                // Request permission again
-                const newPermission = await (handle as any).requestPermission({ mode: 'readwrite' });
-                if (newPermission === 'granted') {
+            // PHASE1-FIX: Better error handling for permission checks
+            try {
+                // Verify we still have permission
+                const permission = await (handle as any).queryPermission({ mode: 'readwrite' });
+                if (permission === 'granted') {
                     directoryHandle = handle;
                     return handle;
+                } else {
+                    // Only request permission if user has previously granted it
+                    // This prevents automatic permission prompts
+                    console.debug('File system permission not granted, skipping automatic re-request');
+                    return null;
                 }
+            } catch (permError) {
+                console.debug('File System permission check failed:', (permError as Error).message);
+                return null;
             }
         }
     } catch (error) {
-        console.error('Error retrieving directory handle:', error);
+        // PHASE1-FIX: Silently handle errors from automatic handle retrieval
+        console.debug('Error retrieving directory handle:', (error as Error).message);
     }
     return null;
 }

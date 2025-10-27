@@ -1,0 +1,73 @@
+/* PHASE1-PRODUCTION: Tailwind CSS base styles */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar styles */
+@layer utilities {
+  .custom-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #475569 transparent;
+  }
+  
+  .custom-scroll::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  .custom-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .custom-scroll::-webkit-scrollbar-thumb {
+    background: #475569;
+    border-radius: 6px;
+  }
+  
+  .custom-scroll::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+  }
+}
+
+/* Aurora background animation */
+@keyframes aurora-glow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.bg-aurora {
+  background-size: 400% 400%;
+  animation: aurora-glow 20s ease infinite;
+  background-color: #0f172a;
+  background-image: radial-gradient(at 27% 37%, hsla(215, 98%, 61%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 97% 21%, hsla(125, 98%, 72%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 52% 99%, hsla(355, 98%, 61%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 10% 29%, hsla(256, 96%, 67%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 97% 96%, hsla(38, 60%, 74%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 33% 50%, hsla(222, 67%, 73%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 79% 53%, hsla(343, 68%, 79%, 0.1) 0px, transparent 50%);
+}
+
+/* Hide summary marker */
+summary::marker {
+  content: "";
+}
+
+/* Screen reader only class */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
