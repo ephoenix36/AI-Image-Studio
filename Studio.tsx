@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 
 import { tips, MEDIA_CATEGORIES, ICONS, DEFAULT_DESCRIPTIONS, ASPECT_RATIOS } from './constants';
@@ -21,8 +22,7 @@ import { BatchEditorModal } from './components/BatchEditorModal';
 
 
 import { generateImage } from './services/geminiService';
-import { blobToBase64, sanitizeFilename, textToBlob, getResolution, useUndoableState, isStorageNearQuota, getLocalStorageSizeFormatted } from './utils';
-import * as Storage from './services/storageService';
+import { blobToBase64, sanitizeFilename, textToBlob, getResolution, useUndoableState } from './utils';
 
 
 // --- MODAL COMPONENTS ---
@@ -146,14 +146,11 @@ export default function Studio() {
     const [renameTarget, setRenameTarget] = useState<{ type: 'project' | 'folder', id: string | null, name: string, folderType?: 'prompt' | 'asset', parentId?: string | null } | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<{ type: 'project' | 'folder', id: string | null, name: string, folderType?: 'prompt' | 'asset' } | null>(null);
     const [deleteAssetsTarget, setDeleteAssetsTarget] = useState<string[] | null>(null);
-    const [movePromptTarget, setMovePromptTarget] = useState<string | null>(null);
-    const [batchMovePrompts, setBatchMovePrompts] = useState(false);
 
     // Settings state
     const [defaultAspectRatio, setDefaultAspectRatio] = useState("1:1");
     const [devMode, setDevMode] = useState(false);
     const [confirmOnDelete, setConfirmOnDelete] = useState(true);
-    const [useAINaming, setUseAINaming] = useState(false);
 
     // Collapsible state
     const [isControlsCollapsed, setIsControlsCollapsed] = useState(false);
@@ -225,158 +222,91 @@ export default function Studio() {
         lastPromptSelectedIndex.current = null;
     }, [allVisiblePromptIds]);
 
-    // Initialize storage on first mount
-    useEffect(() => {
-        const initStorage = async () => {
-            const result = await Storage.initializeStorage();
-            if (result.mode === 'filesystem') {
-                const info = await Storage.getStorageInfo();
-                addNotification(`Using file system storage: ${info.location}`, 'info');
-            } else if (result.mode === 'localstorage') {
-                // Check if file system is supported but user cancelled
-                const info = await Storage.getStorageInfo();
-                if (info.supported) {
-                    addNotification('Using browser storage (5-10MB limit). Switch to file system storage in Settings for unlimited space.', 'info');
-                }
-            }
-        };
-        initStorage();
-    }, []);
 
-    // Load user from storage on initial mount
+    // Load user from localStorage on initial mount
     useEffect(() => {
-        const loadUserData = async () => {
-            const activeUserResult = await Storage.loadActiveUser();
-            const activeUser = activeUserResult.data;
-            
-            if (activeUser) {
-                const usersResult = await Storage.loadUsers();
-                const users = usersResult.data || [];
-                let currentUser = users.find(u => u.username === activeUser);
-                if (currentUser) {
-                    // Data migration for folder separation
-                    if (typeof (currentUser as any).activeFolderId !== 'undefined') {
-                        const migratedUser = { ...currentUser };
-                        migratedUser.projects = migratedUser.projects.map(p => {
-                            let hasAssetFolder = false;
-                            const migratedFolders = p.folders.map(f => {
-                                if (!f.type) {
-                                    (f as Folder).type = 'prompt';
-                                }
-                                if (f.type === 'asset') hasAssetFolder = true;
-                                return f as Folder;
-                            });
-
-                            if (!hasAssetFolder) {
-                                migratedFolders.push({ id: crypto.randomUUID(), name: 'All Images', parentId: null, createdAt: Date.now(), type: 'asset' });
+        const activeUser = localStorage.getItem('aiImageStudioActiveUser');
+        if (activeUser) {
+            const users: User[] = JSON.parse(localStorage.getItem('aiImageStudioUsers') || '[]');
+            let currentUser = users.find(u => u.username === activeUser);
+            if (currentUser) {
+                // Data migration for folder separation
+                if (typeof (currentUser as any).activeFolderId !== 'undefined') {
+                    const migratedUser = { ...currentUser };
+                    migratedUser.projects = migratedUser.projects.map(p => {
+                        let hasAssetFolder = false;
+                        const migratedFolders = p.folders.map(f => {
+                            if (!f.type) {
+                                (f as Folder).type = 'prompt';
                             }
-                            return { ...p, folders: migratedFolders };
+                            if (f.type === 'asset') hasAssetFolder = true;
+                            return f as Folder;
                         });
 
-                        const firstAssetFolder = migratedUser.projects.find(p => p.id === migratedUser.activeProjectId)?.folders.find(f => f.type === 'asset');
+                        if (!hasAssetFolder) {
+                            migratedFolders.push({ id: crypto.randomUUID(), name: 'All Images', parentId: null, createdAt: Date.now(), type: 'asset' });
+                        }
+                        return { ...p, folders: migratedFolders };
+                    });
 
-                        (migratedUser as any).activePromptFolderId = (currentUser as any).activeFolderId;
-                        (migratedUser as any).activeAssetFolderId = firstAssetFolder?.id || null;
-                        delete (migratedUser as any).activeFolderId;
+                    const firstAssetFolder = migratedUser.projects.find(p => p.id === migratedUser.activeProjectId)?.folders.find(f => f.type === 'asset');
 
-                        currentUser = migratedUser;
-                    }
+                    (migratedUser as any).activePromptFolderId = (currentUser as any).activeFolderId;
+                    (migratedUser as any).activeAssetFolderId = firstAssetFolder?.id || null;
+                    delete (migratedUser as any).activeFolderId;
 
-                    // Data migration for CustomPrompt structure
-                    currentUser.projects = currentUser.projects.map(p => ({
-                        ...p,
-                        customPrompts: p.customPrompts.map(prompt => {
-                            if (prompt && typeof (prompt as any).name === 'undefined') {
-                                const oldPrompt = prompt as any;
-                                const name = oldPrompt.text.split(',')[0].trim();
-                                return {
-                                    ...oldPrompt,
-                                    name: name.length > 50 ? name.substring(0, 50) + '...' : name,
-                                    version: '1.0',
-                                    tags: [],
-                                    createdAt: oldPrompt.createdAt || Date.now()
-                                };
-                            }
-                            return prompt as CustomPrompt;
-                        })
-                    }));
-                    
-                    // Ensure activeProjectId and folder IDs are valid
-                    const projectExists = currentUser.projects.some(p => p.id === currentUser.activeProjectId);
-                    if (!projectExists) currentUser.activeProjectId = currentUser.projects[0]?.id || null;
-
-                    const activeProj = currentUser.projects.find(p => p.id === currentUser.activeProjectId);
-                    const promptFolderExists = activeProj?.folders.some(f => f.type === 'prompt' && f.id === currentUser.activePromptFolderId);
-                    if (!promptFolderExists) currentUser.activePromptFolderId = activeProj?.folders.find(f => f.type === 'prompt')?.id || null;
-
-                    const assetFolderExists = activeProj?.folders.some(f => f.type === 'asset' && f.id === currentUser.activeAssetFolderId);
-                    if (!assetFolderExists) currentUser.activeAssetFolderId = activeProj?.folders.find(f => f.type === 'asset')?.id || null;
-                    
-                    setUser(currentUser, true);
+                    currentUser = migratedUser;
                 }
+
+                // Data migration for CustomPrompt structure
+                currentUser.projects = currentUser.projects.map(p => ({
+                    ...p,
+                    customPrompts: p.customPrompts.map(prompt => {
+                        if (prompt && typeof (prompt as any).name === 'undefined') {
+                            const oldPrompt = prompt as any;
+                            const name = oldPrompt.text.split(',')[0].trim();
+                            return {
+                                ...oldPrompt,
+                                name: name.length > 50 ? name.substring(0, 50) + '...' : name,
+                                version: '1.0',
+                                tags: [],
+                                createdAt: oldPrompt.createdAt || Date.now()
+                            };
+                        }
+                        return prompt as CustomPrompt;
+                    })
+                }));
+                
+                // Ensure activeProjectId and folder IDs are valid
+                const projectExists = currentUser.projects.some(p => p.id === currentUser.activeProjectId);
+                if (!projectExists) currentUser.activeProjectId = currentUser.projects[0]?.id || null;
+
+                const activeProj = currentUser.projects.find(p => p.id === currentUser.activeProjectId);
+                const promptFolderExists = activeProj?.folders.some(f => f.type === 'prompt' && f.id === currentUser.activePromptFolderId);
+                if (!promptFolderExists) currentUser.activePromptFolderId = activeProj?.folders.find(f => f.type === 'prompt')?.id || null;
+
+                const assetFolderExists = activeProj?.folders.some(f => f.type === 'asset' && f.id === currentUser.activeAssetFolderId);
+                if (!assetFolderExists) currentUser.activeAssetFolderId = activeProj?.folders.find(f => f.type === 'asset')?.id || null;
+                
+                setUser(currentUser, true);
             }
-        };
-        
-        loadUserData();
+        }
     }, []);
 
-    // Persist user data to storage whenever it changes
+    // Persist user data to localStorage whenever it changes
     useEffect(() => {
-        const persistUserData = async () => {
-            if (user) {
-                try {
-                    const usersResult = await Storage.loadUsers();
-                    const users = usersResult.data || [];
-                    const userIndex = users.findIndex(u => u.username === user.username);
-                    const updatedUser = { ...user };
-                    if (userIndex > -1) users[userIndex] = updatedUser;
-                    else users.push(updatedUser);
-                    
-                    // Save users
-                    const saveResult = await Storage.saveUsers(users);
-                    if (!saveResult.success) {
-                        console.error('Failed to save users:', saveResult.error);
-                        addNotification('Failed to save project data: ' + (saveResult.error || 'Unknown error'), 'error');
-                        return;
-                    }
-                    
-                    // Save active user
-                    const activeUserResult = await Storage.saveActiveUser(user.username);
-                    if (!activeUserResult.success) {
-                        console.error('Failed to save active user:', activeUserResult.error);
-                    }
-                } catch (error) {
-                    console.error('Error persisting user data:', error);
-                    addNotification('Failed to save project data. Your work may not be saved.', 'error');
-                }
-            } else {
-                await Storage.removeActiveUser();
-            }
-        };
-        
-        persistUserData();
-    }, [user]);
-    
-    // Monitor storage usage only when using localStorage mode
-    useEffect(() => {
-        const checkStorage = async () => {
-            const storageInfo = await Storage.getStorageInfo();
-            if (storageInfo.mode === 'localstorage' && isStorageNearQuota()) {
-                const size = getLocalStorageSizeFormatted();
-                addNotification(
-                    `Browser storage is running low (${size}). Consider switching to file system storage or exporting and deleting old images.`,
-                    'info'
-                );
-            }
-        };
-        
-        // Check storage when component mounts and when user changes
-        checkStorage();
-        
-        // Also check periodically (every 5 minutes)
-        const interval = setInterval(checkStorage, 5 * 60 * 1000);
-        
-        return () => clearInterval(interval);
+        if (user) {
+            const users: User[] = JSON.parse(localStorage.getItem('aiImageStudioUsers') || '[]');
+            const userIndex = users.findIndex(u => u.username === user.username);
+            const updatedUser = { ...user };
+            if (userIndex > -1) users[userIndex] = updatedUser;
+            else users.push(updatedUser);
+            
+            localStorage.setItem('aiImageStudioUsers', JSON.stringify(users));
+            localStorage.setItem('aiImageStudioActiveUser', user.username);
+        } else {
+            localStorage.removeItem('aiImageStudioActiveUser');
+        }
     }, [user]);
     
     useEffect(() => {
@@ -438,33 +368,6 @@ export default function Studio() {
         setNotifications(prev => [...prev, { id, message, type }]);
         setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), 5000);
     }, []);
-
-    // Validate active folder IDs and reset if they no longer exist
-    useEffect(() => {
-        if (!activeProject || !user) return;
-        
-        const assetFolderIds = new Set(assetFolders.map(f => f.id));
-        const promptFolderIds = new Set(promptFolders.map(f => f.id));
-        
-        let needsUpdate = false;
-        const updates: Partial<User> = {};
-        
-        // Check if active asset folder still exists
-        if (activeAssetFolderId && !assetFolderIds.has(activeAssetFolderId)) {
-            updates.activeAssetFolderId = null;
-            needsUpdate = true;
-        }
-        
-        // Check if active prompt folder still exists
-        if (activePromptFolderId && !promptFolderIds.has(activePromptFolderId)) {
-            updates.activePromptFolderId = null;
-            needsUpdate = true;
-        }
-        
-        if (needsUpdate) {
-            setUser({ ...user, ...updates });
-        }
-    }, [activeProject, assetFolders, promptFolders, activeAssetFolderId, activePromptFolderId, user]);
 
     const handleStopGeneration = useCallback((promptId: string) => {
         if (loadingStates[promptId]?.controller) {
@@ -721,12 +624,7 @@ export default function Studio() {
         updateActiveProject(p => ({
             ...p,
             generatedAssets: p.generatedAssets.filter(asset => !assetIds.includes(asset.id)),
-            referenceAssets: p.referenceAssets.filter(asset => !assetIds.includes(asset.id)),
-            // Also remove these asset IDs from all prompts that reference them
-            customPrompts: p.customPrompts.map(prompt => ({
-                ...prompt,
-                referenceAssetIds: prompt.referenceAssetIds.filter(id => !assetIds.includes(id))
-            }))
+            referenceAssets: p.referenceAssets.filter(asset => !assetIds.includes(asset.id))
         }));
         setSelectedImageIds(prev => { const newSet = new Set(prev); assetIds.forEach(id => newSet.delete(id)); return newSet; });
         addNotification(`${assetIds.length} item(s) deleted.`, 'info');
@@ -746,18 +644,7 @@ export default function Studio() {
         if(confirmOnDelete && !confirm('Are you sure you want to delete this reference asset?')){
             return;
         }
-        
-        // Remove the reference asset
-        updateActiveProject(p => ({
-            ...p, 
-            referenceAssets: p.referenceAssets.filter(asset => asset.id !== assetId),
-            // Also remove this asset ID from all prompts that reference it
-            customPrompts: p.customPrompts.map(prompt => ({
-                ...prompt,
-                referenceAssetIds: prompt.referenceAssetIds.filter(id => id !== assetId)
-            }))
-        }));
-        
+        updateActiveProject(p => ({...p, referenceAssets: p.referenceAssets.filter(asset => asset.id !== assetId)}));
         addNotification("Reference asset deleted.", 'info');
         setLightboxConfig({ isOpen: false, asset: null, source: 'generated' });
     };
@@ -774,31 +661,6 @@ export default function Studio() {
         if (confirmOnDelete && !confirm(`Are you sure you want to delete this custom prompt?`)) return;
         updateActiveProject(p => ({...p, customPrompts: p.customPrompts.filter(prompt => prompt.id !== promptId)}));
         addNotification("Custom prompt deleted.", 'info');
-    };
-    
-    const handleMovePromptToFolder = (promptId: string, targetFolderId: string | null) => {
-        updateActiveProject(p => ({
-            ...p,
-            customPrompts: p.customPrompts.map(prompt => 
-                prompt.id === promptId ? {...prompt, folderId: targetFolderId} : prompt
-            )
-        }));
-        const folderName = targetFolderId ? promptFolders.find(f => f.id === targetFolderId)?.name || 'Unknown' : 'Home';
-        addNotification(`Prompt moved to "${folderName}".`, 'info');
-        setMovePromptTarget(null);
-    };
-
-    const handleBatchMovePromptsToFolder = (targetFolderId: string | null) => {
-        updateActiveProject(p => ({
-            ...p,
-            customPrompts: p.customPrompts.map(prompt => 
-                selectedPrompts.includes(prompt.id) ? {...prompt, folderId: targetFolderId} : prompt
-            )
-        }));
-        const folderName = targetFolderId ? promptFolders.find(f => f.id === targetFolderId)?.name || 'Unknown' : 'Home';
-        addNotification(`${selectedPrompts.length} prompt(s) moved to "${folderName}".`, 'info');
-        setBatchMovePrompts(false);
-        setSelectedPrompts([]);
     };
     
     const handleSaveEditedPrompt = (promptToSave: CustomPrompt) => {
@@ -855,7 +717,7 @@ export default function Studio() {
         updateActiveProject(p => ({...p, referenceAssets: p.referenceAssets.map(asset => asset.id === updatedAsset.id ? updatedAsset : asset)}));
     };
 
-    const handleUpdateFromViewer = (asset: GeneratedAsset | ReferenceImage) => {
+    const handleUpdateFromViewer = (asset: GeneratedAsset | ReferenceAsset) => {
         if ('imageUrl' in asset) {
             handleAssetUpdate(asset);
         } else {
@@ -917,8 +779,8 @@ export default function Studio() {
     };
 
 
-    const handleLogout = async () => {
-        await Storage.removeActiveUser();
+    const handleLogout = () => {
+        localStorage.removeItem('aiImageStudioActiveUser');
         setUser(null, true);
         setSubjectDescription("a high-end, solar-powered watch with a leather strap");
         setHasUserEditedDescription(false);
@@ -1000,7 +862,6 @@ export default function Studio() {
             });
             if(folderType === 'prompt' && activePromptFolderId === id) updateUser(u => ({...u, activePromptFolderId: null}));
             if(folderType === 'asset' && activeAssetFolderId === id) updateUser(u => ({...u, activeAssetFolderId: null}));
-            addNotification(`Folder "${name}" deleted.`, 'info');
         }
         setDeleteTarget(null);
     };
@@ -1374,7 +1235,7 @@ export default function Studio() {
     let promptCardIndex = 0;
 
     return (
-        <div className="bg-slate-900 text-slate-200 h-screen font-sans bg-aurora flex flex-col overflow-x-hidden">
+        <div className="bg-slate-900 text-slate-200 h-screen font-sans bg-aurora flex flex-col">
              <input type="file" ref={fileInputRef} onChange={handleFileImport} accept=".aistudio.zip,.zip" style={{ display: 'none' }} />
             <style>{`@keyframes aurora-glow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } } .bg-aurora { background-size: 400% 400%; animation: aurora-glow 20s ease infinite; background-color: #0f172a; background-image: radial-gradient(at 27% 37%, hsla(215, 98%, 61%, 0.1) 0px, transparent 50%), radial-gradient(at 97% 21%, hsla(125, 98%, 72%, 0.1) 0px, transparent 50%), radial-gradient(at 52% 99%, hsla(355, 98%, 61%, 0.1) 0px, transparent 50%), radial-gradient(at 10% 29%, hsla(256, 96%, 67%, 0.1) 0px, transparent 50%), radial-gradient(at 97% 96%, hsla(38, 60%, 74%, 0.1) 0px, transparent 50%), radial-gradient(at 33% 50%, hsla(222, 67%, 73%, 0.1) 0px, transparent 50%), radial-gradient(at 79% 53%, hsla(343, 68%, 79%, 0.1) 0px, transparent 50%); } .custom-scroll { scrollbar-width: thin; scrollbar-color: #475569 transparent; } .custom-scroll::-webkit-scrollbar { width: 8px; } .custom-scroll::-webkit-scrollbar-track { background: transparent; } .custom-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 6px; } .custom-scroll::-webkit-scrollbar-thumb:hover { background: #64748b; } summary::marker { content: ""; }`}</style>
             
@@ -1384,9 +1245,8 @@ export default function Studio() {
                         <div className="flex items-center gap-4">
                             <h1 className="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-tight">AI Image Studio</h1>
                             <div className="flex items-center gap-2 p-1 bg-slate-800 rounded-full">
-                                {/* PHASE1-A11Y: Added aria-label for screen reader accessibility */}
-                                <Tooltip text={`Undo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Z)`}><button onClick={undoUser} disabled={!canUndo} aria-label={`Undo (${navigator.platform.toUpperCase().includes('MAC') ? 'Command' : 'Ctrl'}+Z)`} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.UNDO} /></button></Tooltip>
-                                <Tooltip text={`Redo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Y)`}><button onClick={redoUser} disabled={!canRedo} aria-label={`Redo (${navigator.platform.toUpperCase().includes('MAC') ? 'Command' : 'Ctrl'}+Y)`} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.REDO} /></button></Tooltip>
+                                <Tooltip text={`Undo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Z)`}><button onClick={undoUser} disabled={!canUndo} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.UNDO} /></button></Tooltip>
+                                <Tooltip text={`Redo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Y)`}><button onClick={redoUser} disabled={!canRedo} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.REDO} /></button></Tooltip>
                             </div>
                         </div>
                             <div className="flex items-center gap-3">
@@ -1394,8 +1254,7 @@ export default function Studio() {
                                 <button onClick={handleStopAll} className="flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-md transition text-base"><Icon path={ICONS.STOP}/> Stop All</button> :
                                 <>
                                 <button onClick={() => setIsReferenceSelectorOpen('__BATCH_MODE__')} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition text-base disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed"><Icon path={ICONS.ADD_REFERENCE}/> Refs</button>
-                                <button onClick={() => setBatchMovePrompts(true)} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition text-base disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed"><Icon path={ICONS.FOLDER}/> Move</button>
-                                <button onClick={() => handleBatchGenerate(selectedPrompts)} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold py-2 px-4 rounded-md transition disabled:from-slate-500 disabled:to-slate-600 disabled:cursor-not-allowed"><Icon path={ICONS.SPARKLES}/> Generate ({selectedPrompts.length})</button>
+                                <button onClick={() => handleBatchGenerate(selectedPrompts)} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold py-2 px-4 rounded-md transition text-base disabled:from-slate-500 disabled:to-slate-600 disabled:cursor-not-allowed"><Icon path={ICONS.SPARKLES}/> Generate ({selectedPrompts.length})</button>
                                 </>
                             )}
                             <button onClick={() => setIsGalleryOpen(true)} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition"><Icon path={ICONS.GRID}/> Gallery ({activeProject?.generatedAssets.length || 0})</button>
@@ -1405,20 +1264,19 @@ export default function Studio() {
                             </a>
                             <span className="text-slate-400 hidden md:block">|</span>
                             <div className="text-sm text-slate-300">Welcome, <span className="font-bold text-white">{user.username}</span></div>
-                            {/* PHASE1-A11Y: Added aria-labels to Settings and Logout buttons */}
-                            <Tooltip text="Settings"><button onClick={() => setIsSettingsOpen(true)} aria-label="Open settings" className="p-2 text-slate-400 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-full"><Icon path={ICONS.SETTINGS} /></button></Tooltip>
-                            <Tooltip text="Logout"><button onClick={handleLogout} aria-label="Logout from studio" className="p-2 text-slate-400 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-full"><Icon path={ICONS.LOGOUT} /></button></Tooltip>
+                            <Tooltip text="Settings"><button onClick={() => setIsSettingsOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-full"><Icon path={ICONS.SETTINGS} /></button></Tooltip>
+                            <Tooltip text="Logout"><button onClick={handleLogout} className="p-2 text-slate-400 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-full"><Icon path={ICONS.LOGOUT} /></button></Tooltip>
                         </div>
                     </div>
                 </div>
             </header>
             
-            <div className="container mx-auto max-w-[2000px] p-4 sm:p-6 md:p-8 flex-grow min-h-0 lg:overflow-y-hidden">
+            <div className="container mx-auto p-4 sm:p-6 md:p-8 flex-grow min-h-0 lg:overflow-y-hidden">
                 <NotificationToast notifications={notifications} onDismiss={(id) => setNotifications(prev => prev.filter(n => n.id !== id))} />
                 
                 <div className="flex flex-col lg:flex-row gap-8 lg:h-full">
-                    <aside className="w-full lg:w-2/5 xl:w-[480px] 2xl:w-[650px] bg-slate-800/50 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 flex flex-col overflow-x-hidden">
-                        <div className="lg:overflow-y-auto custom-scroll overflow-x-hidden">
+                    <aside className="w-full lg:w-1/3 xl:w-1/4 bg-slate-800/50 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 flex flex-col">
+                        <div className="lg:overflow-y-auto custom-scroll">
                             <details className="p-6" open={!isControlsCollapsed} onToggle={(e) => setIsControlsCollapsed(!e.currentTarget.open)}>
                                 <summary className="list-none cursor-pointer flex justify-between items-center group">
                                     <h2 className="text-2xl font-semibold text-white">Studio Controls</h2>
@@ -1438,37 +1296,35 @@ export default function Studio() {
                                         </select>
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-2">
-                                                <button onClick={() => setRenameTarget({type: 'project', id: null, name: 'My New Project'})} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md">New</button>
-                                                <button onClick={() => activeProject && setRenameTarget({ type: 'project', id: activeProject.id, name: activeProject.name })} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md">Rename</button>
+                                                <button onClick={() => setRenameTarget({type: 'project', id: null, name: 'My New Project'})} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">New</button>
+                                                <button onClick={() => activeProject && setRenameTarget({ type: 'project', id: activeProject.id, name: activeProject.name })} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">Rename</button>
                                             </div>
                                             <div className="flex items-center gap-1">
-                                                {/* PHASE1-A11Y: Added aria-labels to Project management buttons */}
-                                                <Tooltip text="Import Project" position="top"><button onClick={handleImportClick} aria-label="Import project from file" className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                <Tooltip text="Export Project" position="top"><button onClick={handleExportProject} aria-label="Export project to file" className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                <Tooltip text="Delete Project" position="top"><button onClick={() => activeProject && setDeleteTarget({ type: 'project', id: activeProject.id, name: activeProject.name })} disabled={user.projects.length <= 1} aria-label="Delete current project" className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
+                                                <Tooltip text="Import Project" position="top"><button onClick={handleImportClick} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
+                                                <Tooltip text="Export Project" position="top"><button onClick={handleExportProject} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
+                                                <Tooltip text="Delete Project" position="top"><button onClick={() => activeProject && setDeleteTarget({ type: 'project', id: activeProject.id, name: activeProject.name })} disabled={user.projects.length <= 1} className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
                                             </div>
                                         </div>
                                     </ControlsSection>
                                     
                                         <ControlsSection title="Image Folder" defaultOpen={true}>
-                                            <label className="block text-sm font-medium text-slate-400 mb-1">Current Asset Folder</label>
-                                            <select value={activeAssetFolderId || ''} onChange={e => updateUser(u => ({...u, activeAssetFolderId: e.target.value || null}))} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 mb-2">
-                                                                                               <option value="">Home (Root)</option>
-                                                {assetFolders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                            </select>
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <button onClick={() => handleFolderAction('create', null, 'asset')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md">New</button>
-                                                    <button onClick={() => activeAssetFolderId && handleFolderAction('rename', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md disabled:opacity-50">Rename</button>
-                                                </div>
-                                                <div className="flex items-center gap-1">
-                                                    {/* PHASE1-A11Y: Added aria-labels to Asset folder management buttons */}
-                                                    <Tooltip text="Import Assets" position="top"><button onClick={() => document.getElementById('file-upload')?.click()} aria-label="Import assets from files" className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                    <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activeAssetFolderId, 'asset')} aria-label="Export asset folder" className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                    <Tooltip text="Delete Folder" position="top"><button onClick={() => activeAssetFolderId && handleFolderAction('delete', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} aria-label="Delete current asset folder" className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
-                                                </div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-1">Current Asset Folder</label>
+                                        <select value={activeAssetFolderId || ''} onChange={e => updateUser(u => ({...u, activeAssetFolderId: e.target.value || null}))} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 mb-2">
+                                            <option value="">Home (Root)</option>
+                                            {assetFolders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                        </select>
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <button onClick={() => handleFolderAction('create', null, 'asset')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">New</button>
+                                                <button onClick={() => activeAssetFolderId && handleFolderAction('rename', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md disabled:opacity-50">Rename</button>
                                             </div>
-                                        </ControlsSection>
+                                            <div className="flex items-center gap-1">
+                                                <Tooltip text="Import Assets" position="top"><button onClick={() => document.getElementById('file-upload')?.click()} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
+                                                <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activeAssetFolderId, 'asset')} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
+                                                <Tooltip text="Delete Folder" position="top"><button onClick={() => activeAssetFolderId && handleFolderAction('delete', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
+                                            </div>
+                                        </div>
+                                    </ControlsSection>
 
                                     <ControlsSection title="Subject & Assets" defaultOpen={true}>
                                         <label className="block text-sm font-medium text-slate-400 mb-1">Media Type</label>
@@ -1477,24 +1333,9 @@ export default function Studio() {
                                         </select>
 
                                         <label className="block text-sm font-medium text-slate-400 mb-1">Subject Description</label>
-                                        <textarea rows={3} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 custom-scroll mb-4 overflow-wrap-anywhere" value={subjectDescription} onChange={(e) => handleSubjectChange(e.target.value)} onPaste={handleSubjectPaste} placeholder="e.g., a high-end, solar-powered watch" />
+                                        <textarea rows={3} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 custom-scroll mb-4" value={subjectDescription} onChange={(e) => handleSubjectChange(e.target.value)} onPaste={handleSubjectPaste} placeholder="e.g., a high-end, solar-powered watch" />
 
-                                        <div className="flex items-center justify-between mb-1">
-                                            <label className="block text-sm font-medium text-slate-400">Reference Assets (Drop files or click)</label>
-                                            {visibleReferenceAssets.length > 0 && (
-                                                <button 
-                                                    onClick={() => {
-                                                        if (confirm(`Delete all ${visibleReferenceAssets.length} reference asset(s) in this folder?`)) {
-                                                            const assetIds = visibleReferenceAssets.map(a => a.id);
-                                                            handleConfirmDeleteAssets(assetIds);
-                                                        }
-                                                    }}
-                                                    className="text-xs text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 py-1 px-2 rounded transition"
-                                                >
-                                                    Delete All ({visibleReferenceAssets.length})
-                                                </button>
-                                            )}
-                                        </div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-1">Reference Assets (Drop files or click)</label>
                                         <div className={`relative border-2 border-dashed rounded-lg p-2 text-center transition-colors ${isDraggingOver ? 'border-blue-400 bg-blue-900/20' : 'border-slate-600 hover:border-slate-500'}`}
                                             onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOver(true); }} onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOver(false); }} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }} onDrop={handleDrop}>
                                             <Icon path={ICONS.DOWNLOAD} className="mx-auto h-8 w-8 text-slate-400" />
@@ -1526,7 +1367,7 @@ export default function Studio() {
                         </div>
                     </aside>
                     
-                    <main className="w-full lg:flex-1 min-w-0 flex flex-col overflow-x-hidden">
+                    <main className="w-full lg:flex-1 min-w-0 flex flex-col">
                         <div className="lg:overflow-y-auto custom-scroll">
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                                 <div>
@@ -1536,14 +1377,12 @@ export default function Studio() {
                                 <div className="flex items-center gap-2 self-end sm:self-center">
                                     <div className="relative">
                                         <Icon path={ICONS.SEARCH} className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                        {/* PHASE1-A11Y: Added aria-label for search input */}
                                         <input 
                                             type="text" 
                                             placeholder="Search prompts..." 
                                             value={searchTerm} 
                                             onChange={e => setSearchTerm(e.target.value)} 
-                                            aria-label="Search prompts by name or tags"
-                                            className="bg-slate-800/60 border border-slate-700 rounded-full pl-10 pr-4 py-2 w-48 sm:w-72 text-lg focus:ring-cyan-500 focus:border-cyan-500" 
+                                            className="bg-slate-800/60 border border-slate-700 rounded-full pl-10 pr-4 py-2 w-64 sm:w-96 text-lg focus:ring-cyan-500 focus:border-cyan-500" 
                                         />
                                     </div>
                                 </div>
@@ -1556,12 +1395,11 @@ export default function Studio() {
                                         <option value="">My Prompts (Root)</option>
                                         {promptFolders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                     </select>
-                                    <button onClick={() => handleFolderAction('create', null, 'prompt')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md">New</button>
-                                    <button onClick={() => activePromptFolderId && handleFolderAction('rename', activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md disabled:opacity-50">Rename</button>
-                                    {/* PHASE1-A11Y: Added aria-labels to Prompt folder management buttons */}
-                                    <Tooltip text="Import Prompts" position="top"><button onClick={handleImportClick} aria-label="Import prompts from file" className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
-                                    <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} aria-label="Export prompt folder" className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
-                                    <Tooltip text="Delete Folder" position="top"><button onClick={() => activePromptFolderId && handleFolderAction('delete', activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} aria-label="Delete current prompt folder" className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
+                                    <button onClick={() => handleFolderAction('create', null, 'prompt')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">New</button>
+                                    <button onClick={() => activePromptFolderId && handleFolderAction('rename', activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md disabled:opacity-50">Rename</button>
+                                    <Tooltip text="Import Prompts" position="top"><button onClick={handleImportClick} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
+                                    <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
+                                    <Tooltip text="Delete Folder" position="top"><button onClick={() => activePromptFolderId && handleFolderAction('delete', activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
                                 </div>
                             </div>
 
@@ -1605,7 +1443,7 @@ export default function Studio() {
                                                 onChange={e => setNewPrompt(e.target.value)} 
                                                 placeholder="Type or paste one or more prompts here, separated by new lines. Use [subject] as a placeholder." 
                                                 rows={4} 
-                                                className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 custom-scroll overflow-wrap-anywhere"
+                                                className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 custom-scroll"
                                             ></textarea>
                                             <button 
                                                 onClick={() => { 
@@ -1618,7 +1456,7 @@ export default function Studio() {
                                                     } 
                                                 }} 
                                                 disabled={promptsToAddCount === 0}
-                                                className="mt-2 flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 px-3 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                                className="mt-2 flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                                 <Icon path={ICONS.PLUS}/> Add {promptsToAddCount > 0 ? promptsToAddCount : ''} Prompt{promptsToAddCount !== 1 ? 's' : ''}
                                             </button>
@@ -1648,7 +1486,6 @@ export default function Studio() {
                                         isBatchMode={isBatchMode}
                                         onSetAspectRatio={(promptId, ratio) => updateActiveProject(proj => ({...proj, customPrompts: proj.customPrompts.map(prompt => prompt.id === promptId ? {...prompt, aspectRatio: ratio} : prompt)}))}
                                         onAddReferenceClick={(promptId) => setIsReferenceSelectorOpen(promptId)}
-                                        onMoveToFolder={(promptId) => setMovePromptTarget(promptId)}
                                     />)}
                                 </div>
                             </details>
@@ -1798,8 +1635,6 @@ export default function Studio() {
                 setDevMode={setDevMode}
                 confirmOnDelete={confirmOnDelete}
                 setConfirmOnDelete={setConfirmOnDelete}
-                useAINaming={useAINaming}
-                setUseAINaming={setUseAINaming}
             />
 
             <ReferenceAssetSelectorModal
@@ -1835,74 +1670,6 @@ export default function Studio() {
             >
                 Are you sure you want to permanently delete the selected items? This action cannot be undone.
             </ConfirmationModal>
-
-            {/* Move Prompt Modal */}
-            {movePromptTarget && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-[80]" onClick={() => setMovePromptTarget(null)}>
-                    <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 w-full max-w-md" onClick={e => e.stopPropagation()}>
-                        <div className="p-4 border-b border-slate-700">
-                            <h2 className="text-xl font-semibold">Move Prompt to Folder</h2>
-                            <p className="text-sm text-slate-400 mt-1">Select destination folder</p>
-                        </div>
-                        <div className="p-4 max-h-96 overflow-y-auto custom-scroll space-y-2">
-                            <button
-                                onClick={() => handleMovePromptToFolder(movePromptTarget, null)}
-                                className="w-full text-left p-3 rounded-md hover:bg-slate-700 transition flex items-center gap-2"
-                            >
-                                <Icon path={ICONS.FOLDER} className="w-5 h-5 text-cyan-400" />
-                                <span className="text-white">Home (Root)</span>
-                            </button>
-                            {promptFolders.map(folder => (
-                                <button
-                                    key={folder.id}
-                                    onClick={() => handleMovePromptToFolder(movePromptTarget, folder.id)}
-                                    className="w-full text-left p-3 rounded-md hover:bg-slate-700 transition flex items-center gap-2"
-                                >
-                                    <Icon path={ICONS.FOLDER} className="w-5 h-5 text-cyan-400" />
-                                    <span className="text-white">{folder.name}</span>
-                                </button>
-                            ))}
-                        </div>
-                        <div className="p-4 flex justify-end gap-3 bg-slate-900/40 rounded-b-2xl">
-                            <button onClick={() => setMovePromptTarget(null)} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-md transition">Cancel</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Batch Move Prompts Modal */}
-            {batchMovePrompts && selectedPrompts.length > 0 && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-[80]" onClick={() => setBatchMovePrompts(false)}>
-                    <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 w-full max-w-md" onClick={e => e.stopPropagation()}>
-                        <div className="p-4 border-b border-slate-700">
-                            <h2 className="text-xl font-semibold">Move {selectedPrompts.length} Prompt(s) to Folder</h2>
-                            <p className="text-sm text-slate-400 mt-1">Select destination folder</p>
-                        </div>
-                        <div className="p-4 max-h-96 overflow-y-auto custom-scroll space-y-2">
-                            <button
-                                onClick={() => handleBatchMovePromptsToFolder(null)}
-                                className="w-full text-left p-3 rounded-md hover:bg-slate-700 transition flex items-center gap-2"
-                            >
-                                <Icon path={ICONS.FOLDER} className="w-5 h-5 text-cyan-400" />
-                                <span className="text-white">Home (Root)</span>
-                            </button>
-                            {promptFolders.map(folder => (
-                                <button
-                                    key={folder.id}
-                                    onClick={() => handleBatchMovePromptsToFolder(folder.id)}
-                                    className="w-full text-left p-3 rounded-md hover:bg-slate-700 transition flex items-center gap-2"
-                                >
-                                    <Icon path={ICONS.FOLDER} className="w-5 h-5 text-cyan-400" />
-                                    <span className="text-white">{folder.name}</span>
-                                </button>
-                            ))}
-                        </div>
-                        <div className="p-4 flex justify-end gap-3 bg-slate-900/40 rounded-b-2xl">
-                            <button onClick={() => setBatchMovePrompts(false)} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-md transition">Cancel</button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

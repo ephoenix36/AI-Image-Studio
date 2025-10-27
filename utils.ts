@@ -93,35 +93,3 @@ export function useBodyScrollLock(isOpen: boolean) {
         };
     }, [isOpen]);
 }
-
-/**
- * Get the current localStorage usage in bytes
- */
-export function getLocalStorageSize(): number {
-    let total = 0;
-    for (const key in localStorage) {
-        if (localStorage.hasOwnProperty(key)) {
-            total += localStorage[key].length + key.length;
-        }
-    }
-    return total;
-}
-
-/**
- * Get localStorage usage as a formatted string
- */
-export function getLocalStorageSizeFormatted(): string {
-    const bytes = getLocalStorageSize();
-    const mb = bytes / (1024 * 1024);
-    return `${mb.toFixed(2)} MB`;
-}
-
-/**
- * Check if localStorage is near quota (>80% full)
- * Note: Browser quota is typically 5-10MB
- */
-export function isStorageNearQuota(): boolean {
-    const size = getLocalStorageSize();
-    const estimatedQuota = 5 * 1024 * 1024; // Conservative 5MB estimate
-    return size > estimatedQuota * 0.8;
-}
