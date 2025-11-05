@@ -5,7 +5,7 @@ import { ICONS } from '../constants';
 import { LoadingAnimation } from './LoadingAnimation';
 import { magicEditImage, extendImage, upscaleImage } from '../services/geminiService';
 import { GeneratedAsset, ReferenceAsset } from '../types';
-import { blobToBase64 } from '../utils';
+import { blobToBase64, useBodyScrollLock } from '../utils';
 
 type BatchEditMode = 'prompt' | 'resolution' | 'crop' | 'upscale';
 type ResizeMode = 'fit' | 'stretch' | 'crop';
@@ -20,6 +20,8 @@ interface BatchEditorModalProps {
 }
 
 export const BatchEditorModal: React.FC<BatchEditorModalProps> = ({ isOpen, onClose, assets, onSave, addNotification, devMode }) => {
+    useBodyScrollLock(isOpen);
+    
     const [editMode, setEditMode] = useState<BatchEditMode>('prompt');
     const [isGenerating, setIsGenerating] = useState(false);
     const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -200,16 +202,16 @@ export const BatchEditorModal: React.FC<BatchEditorModalProps> = ({ isOpen, onCl
                         <ModeButton mode="upscale" label="Upscale" icon={ICONS.ADD_REFERENCE} />
                     </div>
 
-                    <div className="bg-slate-900/50 p-4 rounded-lg space-y-3">
+                    <div className="bg-slate-900/50 p-4 rounded-lg">
                         {editMode === 'prompt' && <>
                             <label className="font-semibold text-white block">Edit Instructions</label>
                             <textarea rows={3} value={editPrompt} onChange={e => setEditPrompt(e.target.value)} placeholder="e.g., make the background a sandy beach" className="w-full bg-slate-700 p-2 rounded text-sm custom-scroll" />
-                            <label className="font-semibold text-white block">Instructional Assets</label>
+                            <label className="font-semibold text-white block"></label>
                              <div className="p-2 border-2 border-dashed rounded-lg border-slate-600 hover:border-slate-500 text-center">
                                 <label htmlFor="batch-asset-upload" className="font-medium text-cyan-400 hover:text-cyan-300 cursor-pointer text-sm">Click to upload assets</label>
                                 <input id="batch-asset-upload" type="file" className="sr-only" onChange={handleFileSelect} multiple accept="image/*,text/plain"/>
                             </div>
-                            <div className="flex gap-2 mt-2 overflow-x-auto">{instructionAssets.map(a => <div key={a.id} className="w-12 h-12 rounded bg-slate-700 flex-shrink-0 relative group/asset">
+                            <div className="flex gap-2 overflow-x-auto">{instructionAssets.map(a => <div key={a.id} className="w-12 h-12 rounded bg-slate-700 flex-shrink-0 relative group/asset">
                                 {a.type === 'image' ? <img src={(a as any).previewUrl} className="w-full h-full object-cover rounded" alt={a.name}/> : <div className="text-xs p-1">{a.name}</div>}
                                 <button onClick={() => setInstructionAssets(ia => ia.filter(i => i.id !== a.id))} className="absolute -top-1 -right-1 bg-red-600 rounded-full w-4 h-4 text-white text-xs opacity-0 group-hover/asset:opacity-100">&times;</button>
                             </div>)}</div>

@@ -632,8 +632,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
                         </div>
 
                         <div className="bg-slate-900/50 rounded-lg p-3 space-y-2">
-                            <label className="font-bold text-sm block">Instructional Assets</label>
-                            <div className="flex gap-2 mt-2 overflow-x-auto">{instructionAssets.map(a => <div key={a.id} className="w-12 h-12 rounded bg-slate-700 flex-shrink-0 relative group/asset">
+                            <div className="flex gap-2overflow-x-auto">{instructionAssets.map(a => <div key={a.id} className="w-12 h-12 rounded bg-slate-700 flex-shrink-0 relative group/asset">
                                 {a.type === 'image' ? <img src={(a as any).previewUrl} className="w-full h-full object-cover rounded" alt={a.name}/> : <div className="text-xs p-1">{a.name}</div>}
                                 <button onClick={() => setInstructionAssets(ia => ia.filter(i => i.id !== a.id))} className="absolute -top-1 -right-1 bg-red-600 rounded-full w-4 h-4 text-white text-xs opacity-0 group-hover/asset:opacity-100">&times;</button>
                                 </div>)}

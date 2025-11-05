@@ -6,6 +6,7 @@ export interface Folder {
     createdAt: number;
     // Fix: Add 'type' to distinguish between prompt and asset folders.
     type: 'prompt' | 'asset';
+    projectId?: string; // Optional: allows folders to be moved between projects
 }
 
 export interface CustomPromptHistory {
@@ -113,4 +114,6 @@ export interface User {
     activeProjectId: string | null;
     activePromptFolderId: string | null;
     activeAssetFolderId: string | null;
+    apiKey?: string; // Encrypted/secure API key storage
+    localStoragePath?: string; // Local directory for file storage
 }

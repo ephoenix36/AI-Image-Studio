@@ -4,6 +4,7 @@ import type { Project, CustomPrompt, ReferenceAsset, GeneratedAsset, Folder } fr
 import { Icon } from './Icon';
 import { ICONS } from '../constants';
 import { FolderTree } from './FolderTree';
+import { useBodyScrollLock } from '../utils';
 
 interface ReferenceAssetSelectorModalProps {
     isOpen: boolean;
@@ -14,6 +15,8 @@ interface ReferenceAssetSelectorModalProps {
 }
 
 export const ReferenceAssetSelectorModal: React.FC<ReferenceAssetSelectorModalProps> = ({ isOpen, onClose, project, prompt, onSave }) => {
+    useBodyScrollLock(isOpen);
+    
     // Bug fix: This guard must be the first thing in the component.
     if (!isOpen || !prompt) return null;
 

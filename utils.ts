@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useReducer } from 'react';
 
 export function blobToBase64(blob: Blob): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -40,44 +40,109 @@ export function getResolution(url: string): Promise<{width: number, height: numb
 }
 
 
-export function useUndoableState<T>(initialState: T): [T, (newState: T, fromInitial?: boolean) => void, () => void, () => void, boolean, boolean] {
-    const [history, setHistory] = useState<T[]>([initialState]);
-    const [currentIndex, setCurrentIndex] = useState(0);
+type UndoableAction<T> = 
+    | { type: 'SET'; payload: T; fromInitial?: boolean }
+    | { type: 'SET_FUNCTION'; updater: (prev: T) => T }
+    | { type: 'UNDO' }
+    | { type: 'REDO' };
 
-    const setState = useCallback((newState: T, fromInitial = false) => {
-        if (fromInitial) {
-            setHistory([newState]);
-            setCurrentIndex(0);
-            return;
+type UndoableState<T> = {
+    history: T[];
+    currentIndex: number;
+};
+
+function undoableReducer<T>(state: UndoableState<T>, action: UndoableAction<T>): UndoableState<T> {
+    switch (action.type) {
+        case 'SET': {
+            if (action.fromInitial) {
+                return {
+                    history: [action.payload],
+                    currentIndex: 0
+                };
+            }
+            
+            const currentState = state.history[state.currentIndex];
+            // If the new state is the same as the current state, do nothing
+            if (JSON.stringify(action.payload) === JSON.stringify(currentState)) {
+                return state;
+            }
+            
+            const newHistory = state.history.slice(0, state.currentIndex + 1);
+            newHistory.push(action.payload);
+            return {
+                history: newHistory,
+                currentIndex: newHistory.length - 1
+            };
         }
         
-        // If the new state is the same as the current state, do nothing.
-        if (JSON.stringify(newState) === JSON.stringify(history[currentIndex])) {
-            return;
+        case 'SET_FUNCTION': {
+            const currentState = state.history[state.currentIndex];
+            const newState = action.updater(currentState);
+            
+            // If the new state is the same as the current state, do nothing
+            if (JSON.stringify(newState) === JSON.stringify(currentState)) {
+                return state;
+            }
+            
+            const newHistory = state.history.slice(0, state.currentIndex + 1);
+            newHistory.push(newState);
+            return {
+                history: newHistory,
+                currentIndex: newHistory.length - 1
+            };
         }
+        
+        case 'UNDO': {
+            if (state.currentIndex > 0) {
+                return {
+                    ...state,
+                    currentIndex: state.currentIndex - 1
+                };
+            }
+            return state;
+        }
+        
+        case 'REDO': {
+            if (state.currentIndex < state.history.length - 1) {
+                return {
+                    ...state,
+                    currentIndex: state.currentIndex + 1
+                };
+            }
+            return state;
+        }
+        
+        default:
+            return state;
+    }
+}
 
-        const newHistory = history.slice(0, currentIndex + 1);
-        newHistory.push(newState);
-        setHistory(newHistory);
-        setCurrentIndex(newHistory.length - 1);
-    }, [currentIndex, history]);
+export function useUndoableState<T>(initialState: T): [T, (newState: T | ((prev: T) => T), fromInitial?: boolean) => void, () => void, () => void, boolean, boolean] {
+    const [state, dispatch] = useReducer(undoableReducer<T>, {
+        history: [initialState],
+        currentIndex: 0
+    });
+
+    const setState = useCallback((newState: T | ((prev: T) => T), fromInitial = false) => {
+        if (typeof newState === 'function') {
+            dispatch({ type: 'SET_FUNCTION', updater: newState as (prev: T) => T });
+        } else {
+            dispatch({ type: 'SET', payload: newState, fromInitial });
+        }
+    }, []);
 
     const undo = useCallback(() => {
-        if (currentIndex > 0) {
-            setCurrentIndex(currentIndex - 1);
-        }
-    }, [currentIndex]);
+        dispatch({ type: 'UNDO' });
+    }, []);
 
     const redo = useCallback(() => {
-        if (currentIndex < history.length - 1) {
-            setCurrentIndex(currentIndex + 1);
-        }
-    }, [currentIndex, history.length]);
+        dispatch({ type: 'REDO' });
+    }, []);
 
-    const canUndo = currentIndex > 0;
-    const canRedo = currentIndex < history.length - 1;
+    const canUndo = state.currentIndex > 0;
+    const canRedo = state.currentIndex < state.history.length - 1;
 
-    return [history[currentIndex], setState, undo, redo, canUndo, canRedo];
+    return [state.history[state.currentIndex], setState, undo, redo, canUndo, canRedo];
 }
 
 export function useBodyScrollLock(isOpen: boolean) {

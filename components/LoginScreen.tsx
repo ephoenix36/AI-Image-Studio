@@ -15,8 +15,56 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const [error, setError] = useState('');
 
     const defaultPrompts: CustomPrompt[] = [
-        { id: crypto.randomUUID(), name: "Clean Studio Shot", version: "1.0", text: "High-quality photo of [subject], clean white background, studio lighting", tags: ["studio", "product"], folderId: null, referenceAssetIds: [], createdAt: Date.now() },
-        { id: crypto.randomUUID(), name: "Lifestyle Cafe Shot", version: "1.0", text: "Lifestyle shot of [subject] being used by a person in a modern cafe setting", tags: ["lifestyle", "cafe"], folderId: null, referenceAssetIds: [], createdAt: Date.now() },
+        {
+            id: crypto.randomUUID(),
+            name: "Product Photography - Clean Background",
+            version: "1.0",
+            text: "Professional product photography of [subject] on a clean white background, studio lighting, high resolution, commercial quality",
+            tags: ["product", "photography"],
+            folderId: null,
+            referenceAssetIds: [],
+            createdAt: Date.now()
+        },
+        {
+            id: crypto.randomUUID(),
+            name: "Lifestyle Product Shot",
+            version: "1.0",
+            text: "Lifestyle image of [subject] in use, natural setting, warm lighting, authentic atmosphere, professional photography",
+            tags: ["lifestyle", "product"],
+            folderId: null,
+            referenceAssetIds: [],
+            createdAt: Date.now() + 1
+        },
+        {
+            id: crypto.randomUUID(),
+            name: "Minimalist Design",
+            version: "1.0",
+            text: "Minimalist design of [subject], clean lines, modern aesthetic, neutral colors, professional rendering",
+            tags: ["design", "minimalist"],
+            folderId: null,
+            referenceAssetIds: [],
+            createdAt: Date.now() + 2
+        },
+        {
+            id: crypto.randomUUID(),
+            name: "Flat Lay Composition",
+            version: "1.0",
+            text: "Flat lay composition featuring [subject], top-down view, organized layout, clean background, professional styling",
+            tags: ["flat-lay", "photography"],
+            folderId: null,
+            referenceAssetIds: [],
+            createdAt: Date.now() + 3
+        },
+        {
+            id: crypto.randomUUID(),
+            name: "Vintage Style Rendering",
+            version: "1.0",
+            text: "Vintage-style illustration of [subject], retro color palette, classic design elements, nostalgic aesthetic",
+            tags: ["vintage", "illustration"],
+            folderId: null,
+            referenceAssetIds: [],
+            createdAt: Date.now() + 4
+        }
     ];
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -94,7 +142,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 generatedAssets: [],
                 referenceAssets: [],
                 folders: [
-                    { id: defaultPromptFolderId, name: 'My Prompts', parentId: null, createdAt: Date.now(), type: 'prompt' },
+                    { id: defaultPromptFolderId, name: 'Sample Prompts', parentId: null, createdAt: Date.now(), type: 'prompt' },
                     { id: defaultAssetFolderId, name: 'Home', parentId: null, createdAt: Date.now(), type: 'asset' },
                 ],
                 createdAt: Date.now(),

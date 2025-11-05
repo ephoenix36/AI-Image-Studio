@@ -11,8 +11,9 @@ import { SectionHeader } from './components/SectionHeader';
 import { PhotoGallery } from './components/PhotoGallery';
 import { ImageViewer } from './components/ImageViewer';
 import { WizardModal } from './components/WizardModal';
+import { CoffeeModal } from './components/CoffeeModal';
 import { NotificationToast } from './components/NotificationToast';
-import { LoginScreen } from './components/LoginScreen';
+import { AuthScreen } from './components/AuthScreen';
 import { ImageEditorModal } from './components/ImageEditorModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ReferenceAssetSelectorModal } from './components/ReferenceAssetSelectorModal';
@@ -20,9 +21,9 @@ import { FolderTree } from './components/FolderTree';
 import { AssetPreview } from './components/AssetPreview';
 import { BatchEditorModal } from './components/BatchEditorModal';
 
-
+import { useAuth } from './contexts/AuthContext';
 import { generateImage } from './services/geminiService';
-import { blobToBase64, sanitizeFilename, textToBlob, getResolution, useUndoableState } from './utils';
+import { blobToBase64, sanitizeFilename, textToBlob, getResolution, useUndoableState, useBodyScrollLock } from './utils';
 
 
 // --- MODAL COMPONENTS ---
@@ -36,6 +37,8 @@ const ConfirmationModal: React.FC<{
     cancelText?: string;
     children: React.ReactNode;
 }> = ({ isOpen, onClose, onConfirm, title, confirmText = "Confirm", cancelText = "Cancel", children }) => {
+    useBodyScrollLock(isOpen);
+    
     if (!isOpen) return null;
 
     return (
@@ -59,24 +62,31 @@ const ConfirmationModal: React.FC<{
 const RenameModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
-    onSave: (newName: string) => void;
+    onSave: (newName: string, projectId?: string) => void;
     title: string;
     initialName: string;
     saveText?: string;
-}> = ({ isOpen, onClose, onSave, title, initialName, saveText = "Save" }) => {
+    showProjectSelector?: boolean;
+    projects?: Project[];
+    currentProjectId?: string;
+}> = ({ isOpen, onClose, onSave, title, initialName, saveText = "Save", showProjectSelector = false, projects = [], currentProjectId }) => {
+    useBodyScrollLock(isOpen);
+    
     const [name, setName] = useState(initialName);
+    const [selectedProjectId, setSelectedProjectId] = useState(currentProjectId || '');
 
     useEffect(() => {
         if (isOpen) {
             setName(initialName);
+            setSelectedProjectId(currentProjectId || '');
         }
-    }, [isOpen, initialName]);
+    }, [isOpen, initialName, currentProjectId]);
 
     if (!isOpen) return null;
 
     const handleSave = () => {
         if (name.trim()) {
-            onSave(name.trim());
+            onSave(name.trim(), showProjectSelector ? selectedProjectId : undefined);
         }
     };
 
@@ -86,15 +96,32 @@ const RenameModal: React.FC<{
                 <div className="p-4 border-b border-slate-700">
                     <h2 className="text-xl font-semibold">{title}</h2>
                 </div>
-                <div className="p-6">
-                    <input
-                        type="text"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && handleSave()}
-                        className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2"
-                        autoFocus
-                    />
+                <div className="p-6 space-y-4">
+                    <div>
+                        <label className="text-sm text-slate-300 mb-1 block">Name</label>
+                        <input
+                            type="text"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleSave()}
+                            className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2"
+                            autoFocus
+                        />
+                    </div>
+                    {showProjectSelector && projects.length > 0 && (
+                        <div>
+                            <label className="text-sm text-slate-300 mb-1 block">Move to Project</label>
+                            <select
+                                value={selectedProjectId}
+                                onChange={(e) => setSelectedProjectId(e.target.value)}
+                                className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2"
+                            >
+                                {projects.map(proj => (
+                                    <option key={proj.id} value={proj.id}>{proj.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                 </div>
                 <div className="p-4 flex justify-end gap-3 bg-slate-900/40 rounded-b-2xl">
                     <button onClick={onClose} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-md transition">Cancel</button>
@@ -108,9 +135,24 @@ const RenameModal: React.FC<{
 
 // Main App Component
 export default function Studio() {
+    const { currentUser, userData, updateUserData, logout } = useAuth();
+    
     // Using a single state object for the entire user session
-    const [user, setUserWithHistory, undoUser, redoUser, canUndo, canRedo] = useUndoableState<User | null>(null);
-    const setUser = (u: User | null, fromInitial = false) => setUserWithHistory(u, fromInitial);
+    const [user, setUserWithHistory, undoUser, redoUser, canUndo, canRedo] = useUndoableState<User | null>(userData);
+    const setUser = (u: User | null | ((prev: User | null) => User | null), fromInitial = false) => {
+        setUserWithHistory(u, fromInitial);
+        // Sync with Firestore when user data changes
+        if (u && typeof u !== 'function') {
+            updateUserData(u);
+        }
+    };
+    
+    // Sync userData from auth context with local state
+    useEffect(() => {
+        if (userData && !user) {
+            setUser(userData, true);
+        }
+    }, [userData]);
 
     // Local UI State
     const [subjectDescription, setSubjectDescription] = useState("a high-end, solar-powered watch with a leather strap");
@@ -131,6 +173,7 @@ export default function Studio() {
     const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({ "Prompting Tips": true });
     const [isWizardOpen, setIsWizardOpen] = useState(false);
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+    const [isCoffeeModalOpen, setIsCoffeeModalOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isReferenceSelectorOpen, setIsReferenceSelectorOpen] = useState<string | null>(null);
     const [lightboxConfig, setLightboxConfig] = useState<{ isOpen: boolean, asset: GeneratedAsset | ReferenceImage | null, source: 'generated' | 'reference' }>({ isOpen: false, asset: null, source: 'generated' });
@@ -140,7 +183,7 @@ export default function Studio() {
     const lastPromptSelectedIndex = useRef<number | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [searchTerm, setSearchTerm] = useState("");
-    const [selectedMediaType, setSelectedMediaType] = useState<MediaType>("Products");
+    const [selectedMediaType, setSelectedMediaType] = useState<MediaType>("Custom");
 
     // Modal States
     const [renameTarget, setRenameTarget] = useState<{ type: 'project' | 'folder', id: string | null, name: string, folderType?: 'prompt' | 'asset', parentId?: string | null } | null>(null);
@@ -296,14 +339,49 @@ export default function Studio() {
     // Persist user data to localStorage whenever it changes
     useEffect(() => {
         if (user) {
-            const users: User[] = JSON.parse(localStorage.getItem('aiImageStudioUsers') || '[]');
-            const userIndex = users.findIndex(u => u.username === user.username);
-            const updatedUser = { ...user };
-            if (userIndex > -1) users[userIndex] = updatedUser;
-            else users.push(updatedUser);
-            
-            localStorage.setItem('aiImageStudioUsers', JSON.stringify(users));
-            localStorage.setItem('aiImageStudioActiveUser', user.username);
+            try {
+                const users: User[] = JSON.parse(localStorage.getItem('aiImageStudioUsers') || '[]');
+                const userIndex = users.findIndex(u => u.username === user.username);
+                
+                // Create a lightweight version without generated images (they're too large for localStorage)
+                const lightweightUser = {
+                    ...user,
+                    projects: user.projects.map(p => ({
+                        ...p,
+                        generatedAssets: [], // Don't persist generated images - they exceed localStorage quota
+                        referenceAssets: p.referenceAssets // Reference assets are user-uploaded, keep them
+                    }))
+                };
+                
+                if (userIndex > -1) users[userIndex] = lightweightUser;
+                else users.push(lightweightUser);
+                
+                localStorage.setItem('aiImageStudioUsers', JSON.stringify(users));
+                localStorage.setItem('aiImageStudioActiveUser', user.username);
+            } catch (error) {
+                if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+                    console.error('localStorage quota exceeded. Clearing old data...');
+                    // Try to clear and save again without images
+                    try {
+                        const lightweightUser = {
+                            ...user,
+                            projects: user.projects.map(p => ({
+                                ...p,
+                                generatedAssets: [],
+                                referenceAssets: [] // Also clear reference assets if still too large
+                            }))
+                        };
+                        localStorage.setItem('aiImageStudioUsers', JSON.stringify([lightweightUser]));
+                        localStorage.setItem('aiImageStudioActiveUser', user.username);
+                        addNotification('Storage limit reached. Generated images will not persist across sessions.', 'error');
+                    } catch (e) {
+                        console.error('Failed to save to localStorage even after clearing:', e);
+                        addNotification('Unable to save data. Please clear browser storage.', 'error');
+                    }
+                } else {
+                    console.error('Error saving to localStorage:', error);
+                }
+            }
         } else {
             localStorage.removeItem('aiImageStudioActiveUser');
         }
@@ -316,11 +394,11 @@ export default function Studio() {
     }, [selectedMediaType, hasUserEditedDescription]);
     
     const updateUser = useCallback((updater: (u: User) => User) => {
-        if (user) {
-            const newUser = updater(user);
-            setUserWithHistory(newUser);
-        }
-    }, [user, setUserWithHistory]);
+        setUserWithHistory(prevUser => {
+            if (!prevUser) return prevUser;
+            return updater(prevUser);
+        });
+    }, [setUserWithHistory]);
 
     const updateActiveProject = useCallback((updater: (p: Project) => Project) => {
         updateUser(u => {
@@ -439,7 +517,18 @@ export default function Studio() {
                     createdAt: Date.now(), aspectRatio: aspectRatio, tags: [],
                     folderId: activeAssetFolderId, resolution, referenceAssetIds: promptRefIds,
                 };
-                updateActiveProject(p => ({ ...p, generatedAssets: [...p.generatedAssets, newAsset] }));
+                // Use functional update to prevent race condition when multiple images generate simultaneously
+                updateActiveProject(p => {
+                    const newProj = { ...p, generatedAssets: [...p.generatedAssets, newAsset] };
+                    
+                    // Show a one-time notification about session-only storage
+                    if (p.generatedAssets.length === 0 && !localStorage.getItem('hasShownStorageWarning')) {
+                        localStorage.setItem('hasShownStorageWarning', 'true');
+                        addNotification('💡 Tip: Generated images exist only during this session. Use Gallery > Download to save them!', 'info');
+                    }
+                    
+                    return newProj;
+                });
             } else if (result.error) { throw new Error(result.error); }
         } catch (error: any) {
             if (error.name !== 'AbortError') {
@@ -460,6 +549,10 @@ export default function Studio() {
         const ratio = w / h;
         const width = 512;
         const height = Math.round(width / ratio);
+        
+        const controller = new AbortController();
+        setLoadingStates(prev => ({ ...prev, [promptId]: { isLoading: true, controller } }));
+        
         const imageUrl = `https://picsum.photos/${width}/${height}?random=${Math.random()}`;
         
         const response = await fetch(imageUrl);
@@ -474,7 +567,12 @@ export default function Studio() {
             aspectRatio: aspectRatio, tags: ['simulated'], folderId: activeAssetFolderId,
             resolution, referenceAssetIds: prompt?.referenceAssetIds
         };
+        
+        // Show loading for 1 second
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
         updateActiveProject(p => ({ ...p, generatedAssets: [...p.generatedAssets, newAsset] }));
+        setLoadingStates(prev => { const newStates = {...prev}; delete newStates[promptId]; return newStates; });
     }
 
     const handleBatchGenerate = async (promptIds: string[]) => {
@@ -779,36 +877,35 @@ export default function Studio() {
     };
 
 
-    const handleLogout = () => {
-        localStorage.removeItem('aiImageStudioActiveUser');
-        setUser(null, true);
-        setSubjectDescription("a high-end, solar-powered watch with a leather strap");
-        setHasUserEditedDescription(false);
-        setIsBatchMode(false); setSelectedPrompts([]); setLoadingStates({});
-        setCollapsedSections({ "Prompting Tips": true });
-        addNotification("You have been logged out.", "info");
+    const handleLogout = async () => {
+        try {
+            await logout();
+            setUser(null, true);
+            setSubjectDescription("a high-end, solar-powered watch with a leather strap");
+            setHasUserEditedDescription(false);
+            setIsBatchMode(false); setSelectedPrompts([]); setLoadingStates({});
+            setCollapsedSections({ "Prompting Tips": true });
+            addNotification("You have been logged out.", "info");
+        } catch (error: any) {
+            addNotification(`Logout failed: ${error.message}`, "error");
+        }
     };
 
     // Project CRUD
-    const handleRenameSave = (newName: string) => {
+    const handleRenameSave = (newName: string, projectId?: string) => {
         if (!renameTarget) return;
         const { type, id, parentId, folderType } = renameTarget;
         switch (type) {
             case 'project':
                 const isCreating = !id;
                 if (isCreating) {
-                    const defaultPromptFolderId = crypto.randomUUID();
-                    const defaultAssetFolderId = crypto.randomUUID();
                     const newProject: Project = {
                         id: crypto.randomUUID(), name: newName, createdAt: Date.now(),
                         customPrompts: [], generatedAssets: [], referenceAssets: [],
-                        folders: [
-                            { id: defaultPromptFolderId, name: 'My Prompts', parentId: null, createdAt: Date.now(), type: 'prompt'},
-                            { id: defaultAssetFolderId, name: 'Home', parentId: null, createdAt: Date.now(), type: 'asset'}
-                        ],
+                        folders: [],
                     };
                     updateUser(u => ({
-                        ...u, projects: [...u.projects, newProject], activeProjectId: newProject.id, activePromptFolderId: defaultPromptFolderId, activeAssetFolderId: defaultAssetFolderId
+                        ...u, projects: [...u.projects, newProject], activeProjectId: newProject.id, activePromptFolderId: null, activeAssetFolderId: null
                     }));
                     addNotification(`Project "${newName}" created.`);
                 } else {
@@ -819,11 +916,60 @@ export default function Studio() {
             case 'folder':
                 const isCreatingFolder = !id;
                 if(isCreatingFolder) {
-                    const newFolder: Folder = { id: crypto.randomUUID(), name: newName, parentId: parentId || null, createdAt: Date.now(), type: folderType! };
+                    const newFolder: Folder = { id: crypto.randomUUID(), name: newName, parentId: parentId || null, createdAt: Date.now(), type: folderType!, projectId: projectId };
                     updateActiveProject(p => ({...p, folders: [...p.folders, newFolder]}));
+                    
+                    // Automatically switch to the newly created folder
+                    if (folderType === 'prompt') {
+                        updateUser(u => ({ ...u, activePromptFolderId: newFolder.id }));
+                    } else if (folderType === 'asset') {
+                        updateUser(u => ({ ...u, activeAssetFolderId: newFolder.id }));
+                    }
+                    addNotification(`Folder "${newName}" created.`);
                 } else {
                     if (id) {
-                        updateActiveProject(p => ({...p, folders: p.folders.map(f => f.id === id ? {...f, name: newName} : f)}));
+                        // Check if moving to a different project
+                        if (projectId && user) {
+                            const currentFolder = activeProject?.folders.find(f => f.id === id);
+                            const targetProject = user.projects.find(p => p.id === projectId);
+                            const currentProject = activeProject;
+                            
+                            if (currentFolder && targetProject && currentProject && currentProject.id !== projectId) {
+                                // Move folder to different project
+                                updateUser(u => ({
+                                    ...u,
+                                    projects: u.projects.map(p => {
+                                        if (p.id === currentProject.id) {
+                                            // Remove folder from current project
+                                            return {
+                                                ...p,
+                                                folders: p.folders.filter(f => f.id !== id),
+                                                // Also update assets/prompts in this folder to have null folderId
+                                                generatedAssets: p.generatedAssets.map(a => a.folderId === id ? {...a, folderId: null} : a),
+                                                customPrompts: p.customPrompts.map(a => a.folderId === id ? {...a, folderId: null} : a),
+                                                referenceAssets: p.referenceAssets.map(a => a.folderId === id ? {...a, folderId: null} : a),
+                                            };
+                                        } else if (p.id === projectId) {
+                                            // Add folder to target project
+                                            return {
+                                                ...p,
+                                                folders: [...p.folders, { ...currentFolder, name: newName, projectId }]
+                                            };
+                                        }
+                                        return p;
+                                    })
+                                }));
+                                addNotification(`Folder "${newName}" moved to "${targetProject.name}".`);
+                            } else {
+                                // Just rename within same project
+                                updateActiveProject(p => ({...p, folders: p.folders.map(f => f.id === id ? {...f, name: newName, projectId} : f)}));
+                                addNotification(`Folder renamed to "${newName}".`);
+                            }
+                        } else {
+                            // Just rename
+                            updateActiveProject(p => ({...p, folders: p.folders.map(f => f.id === id ? {...f, name: newName} : f)}));
+                            addNotification(`Folder renamed to "${newName}".`);
+                        }
                     }
                 }
                 break;
@@ -871,6 +1017,48 @@ export default function Studio() {
             const newProject = u.projects.find(p => p.id === projectId);
             return { ...u, activeProjectId: projectId, activePromptFolderId: newProject?.folders.find(f=>f.type==='prompt')?.id || null, activeAssetFolderId: newProject?.folders.find(f=>f.type==='asset')?.id || null };
         });
+    };
+    
+    const handleMoveFolderToProject = (folderId: string, targetProjectId: string) => {
+        if (!user || !activeProject) return;
+        
+        const currentFolder = activeProject.folders.find(f => f.id === folderId);
+        const targetProject = user.projects.find(p => p.id === targetProjectId);
+        
+        if (!currentFolder || !targetProject || activeProject.id === targetProjectId) return;
+        
+        updateUser(u => ({
+            ...u,
+            projects: u.projects.map(p => {
+                if (p.id === activeProject.id) {
+                    // Remove folder from current project
+                    return {
+                        ...p,
+                        folders: p.folders.filter(f => f.id !== folderId),
+                        // Update assets/prompts in this folder to have null folderId
+                        generatedAssets: p.generatedAssets.map(a => a.folderId === folderId ? {...a, folderId: null} : a),
+                        customPrompts: p.customPrompts.map(a => a.folderId === folderId ? {...a, folderId: null} : a),
+                        referenceAssets: p.referenceAssets.map(a => a.folderId === folderId ? {...a, folderId: null} : a),
+                    };
+                } else if (p.id === targetProjectId) {
+                    // Add folder to target project
+                    return {
+                        ...p,
+                        folders: [...p.folders, { ...currentFolder, projectId: targetProjectId }]
+                    };
+                }
+                return p;
+            })
+        }));
+        
+        addNotification(`Folder "${currentFolder.name}" moved to "${targetProject.name}".`);
+        
+        // Clear active folder if it was the one moved
+        if (currentFolder.type === 'prompt' && activePromptFolderId === folderId) {
+            updateUser(u => ({...u, activePromptFolderId: null}));
+        } else if (currentFolder.type === 'asset' && activeAssetFolderId === folderId) {
+            updateUser(u => ({...u, activeAssetFolderId: null}));
+        }
     };
 
     // Folder CRUD
@@ -1216,8 +1404,8 @@ export default function Studio() {
         reader.readAsArrayBuffer(file);
     };
 
-    if (!user) {
-        return <LoginScreen onLogin={(u) => setUser(u, true)} />;
+    if (!currentUser || !user) {
+        return <AuthScreen />;
     }
 
     const ControlsSection: React.FC<{title: string, children: React.ReactNode, defaultOpen?: boolean}> = ({ title, children, defaultOpen=true }) => (
@@ -1235,35 +1423,93 @@ export default function Studio() {
     let promptCardIndex = 0;
 
     return (
-        <div className="bg-slate-900 text-slate-200 h-screen font-sans bg-aurora flex flex-col">
+        <div className="bg-slate-900 text-slate-200 min-h-screen font-sans bg-aurora flex flex-col">
              <input type="file" ref={fileInputRef} onChange={handleFileImport} accept=".aistudio.zip,.zip" style={{ display: 'none' }} />
-            <style>{`@keyframes aurora-glow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } } .bg-aurora { background-size: 400% 400%; animation: aurora-glow 20s ease infinite; background-color: #0f172a; background-image: radial-gradient(at 27% 37%, hsla(215, 98%, 61%, 0.1) 0px, transparent 50%), radial-gradient(at 97% 21%, hsla(125, 98%, 72%, 0.1) 0px, transparent 50%), radial-gradient(at 52% 99%, hsla(355, 98%, 61%, 0.1) 0px, transparent 50%), radial-gradient(at 10% 29%, hsla(256, 96%, 67%, 0.1) 0px, transparent 50%), radial-gradient(at 97% 96%, hsla(38, 60%, 74%, 0.1) 0px, transparent 50%), radial-gradient(at 33% 50%, hsla(222, 67%, 73%, 0.1) 0px, transparent 50%), radial-gradient(at 79% 53%, hsla(343, 68%, 79%, 0.1) 0px, transparent 50%); } .custom-scroll { scrollbar-width: thin; scrollbar-color: #475569 transparent; } .custom-scroll::-webkit-scrollbar { width: 8px; } .custom-scroll::-webkit-scrollbar-track { background: transparent; } .custom-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 6px; } .custom-scroll::-webkit-scrollbar-thumb:hover { background: #64748b; } summary::marker { content: ""; }`}</style>
+            <style>{`
+                @keyframes aurora-glow { 
+                    0% { background-position: 0% 50%; } 
+                    50% { background-position: 100% 50%; } 
+                    100% { background-position: 0% 50%; } 
+                } 
+                @keyframes shimmer {
+                    0% { transform: translateX(-100%); }
+                    100% { transform: translateX(100%); }
+                }
+                @keyframes spin-slow {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(-360deg); }
+                }
+                .bg-aurora { 
+                    background-size: 400% 400%; 
+                    animation: aurora-glow 20s ease infinite; 
+                    background-color: #0f172a; 
+                    background-image: radial-gradient(at 27% 37%, hsla(215, 98%, 61%, 0.1) 0px, transparent 50%), radial-gradient(at 97% 21%, hsla(125, 98%, 72%, 0.1) 0px, transparent 50%), radial-gradient(at 52% 99%, hsla(355, 98%, 61%, 0.1) 0px, transparent 50%), radial-gradient(at 10% 29%, hsla(256, 96%, 67%, 0.1) 0px, transparent 50%), radial-gradient(at 97% 96%, hsla(38, 60%, 74%, 0.1) 0px, transparent 50%), radial-gradient(at 33% 50%, hsla(222, 67%, 73%, 0.1) 0px, transparent 50%), radial-gradient(at 79% 53%, hsla(343, 68%, 79%, 0.1) 0px, transparent 50%); 
+                } 
+                .custom-scroll { 
+                    scrollbar-width: thin; 
+                    scrollbar-color: #475569 transparent; 
+                } 
+                .custom-scroll::-webkit-scrollbar { 
+                    width: 8px; 
+                } 
+                .custom-scroll::-webkit-scrollbar-track { 
+                    background: transparent; 
+                } 
+                .custom-scroll::-webkit-scrollbar-thumb { 
+                    background: #475569; 
+                    border-radius: 6px; 
+                } 
+                .custom-scroll::-webkit-scrollbar-thumb:hover { 
+                    background: #64748b; 
+                } 
+                .animate-shimmer {
+                    animation: shimmer 2s infinite;
+                }
+                .animate-spin-slow {
+                    animation: spin-slow 3s linear infinite;
+                }
+                summary::marker { 
+                    content: ""; 
+                }
+            `}</style>
             
             <header className="sticky top-0 z-40 bg-slate-900/80 backdrop-blur-md border-b border-slate-700/50 flex-shrink-0">
                 <div className="container mx-auto px-4 sm:px-6 md:px-8 py-3">
-                    <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-                        <div className="flex items-center gap-4">
+                    <div className="flex flex-col xl:flex-row justify-between items-center gap-4">
+                        <div className="flex items-center gap-4 w-full xl:w-auto justify-between xl:justify-start">
                             <h1 className="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-tight">AI Image Studio</h1>
                             <div className="flex items-center gap-2 p-1 bg-slate-800 rounded-full">
                                 <Tooltip text={`Undo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Z)`}><button onClick={undoUser} disabled={!canUndo} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.UNDO} /></button></Tooltip>
                                 <Tooltip text={`Redo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Y)`}><button onClick={redoUser} disabled={!canRedo} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.REDO} /></button></Tooltip>
                             </div>
                         </div>
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 flex-wrap justify-center xl:justify-end w-full xl:w-auto">
                             {isBatchMode && (anyLoading ? 
-                                <button onClick={handleStopAll} className="flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-md transition text-base"><Icon path={ICONS.STOP}/> Stop All</button> :
+                                <button onClick={handleStopAll} className="flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-md transition text-base">
+                                    <Icon path={ICONS.STOP}/>
+                                    <span className="hidden md:inline">Stop All</span>
+                                </button> :
                                 <>
-                                <button onClick={() => setIsReferenceSelectorOpen('__BATCH_MODE__')} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition text-base disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed"><Icon path={ICONS.ADD_REFERENCE}/> Refs</button>
-                                <button onClick={() => handleBatchGenerate(selectedPrompts)} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold py-2 px-4 rounded-md transition text-base disabled:from-slate-500 disabled:to-slate-600 disabled:cursor-not-allowed"><Icon path={ICONS.SPARKLES}/> Generate ({selectedPrompts.length})</button>
+                                <button onClick={() => setIsReferenceSelectorOpen('__BATCH_MODE__')} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition text-base disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed">
+                                    <Icon path={ICONS.ADD_REFERENCE}/>
+                                    <span className="hidden md:inline">Refs</span>
+                                </button>
+                                <button onClick={() => handleBatchGenerate(selectedPrompts)} disabled={selectedPrompts.length === 0} className="flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white font-bold py-2 px-4 rounded-md transition text-base disabled:from-slate-500 disabled:to-slate-600 disabled:cursor-not-allowed">
+                                    <Icon path={ICONS.SPARKLES}/>
+                                    <span className="hidden md:inline">Generate</span> ({selectedPrompts.length})
+                                </button>
                                 </>
                             )}
-                            <button onClick={() => setIsGalleryOpen(true)} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition"><Icon path={ICONS.GRID}/> Gallery ({activeProject?.generatedAssets.length || 0})</button>
-                            <a href="https://buymeacoffee.com/enahm" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-2 px-4 rounded-md transition">
-                                <Icon path={ICONS.COFFEE} />
-                                <span className="hidden sm:inline">Buy me a coffee</span>
-                            </a>
-                            <span className="text-slate-400 hidden md:block">|</span>
-                            <div className="text-sm text-slate-300">Welcome, <span className="font-bold text-white">{user.username}</span></div>
+                            <button onClick={() => setIsGalleryOpen(true)} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition">
+                                <Icon path={ICONS.GRID}/>
+                                <span className="hidden md:inline">Gallery</span> 
+                                <span>({activeProject?.generatedAssets.length || 0})</span>
+                            </button>
+                            <button onClick={() => setIsCoffeeModalOpen(true)} className="flex items-center justify-center bg-yellow-500 hover:bg-yellow-400 text-black font-bold p-2 rounded-md transition" title="Buy me a coffee">
+                                <Icon path={ICONS.COFFEE} className="w-5 h-5" />
+                            </button>
+                            <span className="text-slate-400 hidden xl:block">|</span>
+                            <div className="text-sm text-slate-300 hidden xl:block">Welcome, <span className="font-bold text-white">{user.username}</span></div>
                             <Tooltip text="Settings"><button onClick={() => setIsSettingsOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-full"><Icon path={ICONS.SETTINGS} /></button></Tooltip>
                             <Tooltip text="Logout"><button onClick={handleLogout} className="p-2 text-slate-400 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-full"><Icon path={ICONS.LOGOUT} /></button></Tooltip>
                         </div>
@@ -1274,9 +1520,9 @@ export default function Studio() {
             <div className="container mx-auto p-4 sm:p-6 md:p-8 flex-grow min-h-0 lg:overflow-y-hidden">
                 <NotificationToast notifications={notifications} onDismiss={(id) => setNotifications(prev => prev.filter(n => n.id !== id))} />
                 
-                <div className="flex flex-col lg:flex-row gap-8 lg:h-full">
-                    <aside className="w-full lg:w-1/3 xl:w-1/4 bg-slate-800/50 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 flex flex-col">
-                        <div className="lg:overflow-y-auto custom-scroll">
+                <div className="flex flex-col lg:flex-row gap-8 lg:h-full overflow-hidden">
+                    <aside className="w-full lg:w-1/3 xl:w-1/4 bg-slate-800/50 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 flex flex-col overflow-hidden">
+                        <div className="lg:overflow-y-auto overflow-x-hidden custom-scroll">
                             <details className="p-6" open={!isControlsCollapsed} onToggle={(e) => setIsControlsCollapsed(!e.currentTarget.open)}>
                                 <summary className="list-none cursor-pointer flex justify-between items-center group">
                                     <h2 className="text-2xl font-semibold text-white">Studio Controls</h2>
@@ -1310,7 +1556,7 @@ export default function Studio() {
                                         <ControlsSection title="Image Folder" defaultOpen={true}>
                                         <label className="block text-sm font-medium text-slate-400 mb-1">Current Asset Folder</label>
                                         <select value={activeAssetFolderId || ''} onChange={e => updateUser(u => ({...u, activeAssetFolderId: e.target.value || null}))} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 mb-2">
-                                            <option value="">Home (Root)</option>
+                                            <option value="">Main</option>
                                             {assetFolders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                         </select>
                                         <div className="flex items-center justify-between">
@@ -1367,8 +1613,8 @@ export default function Studio() {
                         </div>
                     </aside>
                     
-                    <main className="w-full lg:flex-1 min-w-0 flex flex-col">
-                        <div className="lg:overflow-y-auto custom-scroll">
+                    <main className="w-full lg:flex-1 min-w-0 flex flex-col overflow-x-hidden">
+                        <div className="lg:overflow-y-auto custom-scroll overflow-x-hidden">
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                                 <div>
                                     <h2 className="text-3xl lg:text-4xl font-bold text-white">Prompt Studio</h2>
@@ -1378,10 +1624,15 @@ export default function Studio() {
                                     <div className="relative">
                                         <Icon path={ICONS.SEARCH} className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                         <input 
-                                            type="text" 
+                                            type="search" 
+                                            name="prompt-search"
                                             placeholder="Search prompts..." 
                                             value={searchTerm} 
                                             onChange={e => setSearchTerm(e.target.value)} 
+                                            autoComplete="off"
+                                            autoCorrect="off"
+                                            autoCapitalize="off"
+                                            spellCheck="false"
                                             className="bg-slate-800/60 border border-slate-700 rounded-full pl-10 pr-4 py-2 w-64 sm:w-96 text-lg focus:ring-cyan-500 focus:border-cyan-500" 
                                         />
                                     </div>
@@ -1392,7 +1643,7 @@ export default function Studio() {
                                 <label className="block text-sm font-medium text-slate-400 mb-1">Current Prompt Folder</label>
                                 <div className="flex gap-2">
                                     <select value={activePromptFolderId || ''} onChange={e => updateUser(u => ({...u, activePromptFolderId: e.target.value || null}))} className="flex-1 bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2">
-                                        <option value="">My Prompts (Root)</option>
+                                        <option value="">All Prompts</option>
                                         {promptFolders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                     </select>
                                     <button onClick={() => handleFolderAction('create', null, 'prompt')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">New</button>
@@ -1413,14 +1664,15 @@ export default function Studio() {
                                             <div className="flex items-center gap-2 self-center">
                                                 <button onClick={(e) => { e.preventDefault(); handleGenerateSelectedCustomPrompts(); }} disabled={customPromptsSelectionCount === 0} className={`text-sm font-semibold py-1.5 px-3 rounded-md transition flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-500 text-white disabled:bg-slate-700 disabled:text-slate-400 disabled:cursor-not-allowed`}>
                                                     <Icon path={ICONS.SPARKLES} className="w-4 h-4" />
-                                                    Generate Selected ({customPromptsSelectionCount})
+                                                    <span className="hidden md:inline">Generate Selected</span> ({customPromptsSelectionCount})
                                                 </button>
-                                                <button onClick={(e) => { e.preventDefault(); handleSelectAllCustomPrompts(); }} className={`text-sm font-semibold py-1.5 px-3 rounded-md transition ${
+                                                <button onClick={(e) => { e.preventDefault(); handleSelectAllCustomPrompts(); }} className={`text-sm font-semibold py-1.5 px-3 rounded-md transition flex items-center gap-1.5 ${
                                                     customPromptsSelectionState === 'all' ? 'bg-orange-600 hover:bg-orange-500 text-white' :
                                                     customPromptsSelectionState === 'some' ? 'bg-slate-600 hover:bg-slate-500 text-orange-300 ring-1 ring-orange-500' :
                                                     'bg-slate-700 hover:bg-slate-600 text-slate-300'
                                                 }`}>
-                                                    {customPromptsSelectionState === 'all' ? 'Deselect All' : `Select All`}
+                                                    <Icon path={customPromptsSelectionState === 'all' ? ICONS.CLOSE : ICONS.CHECK} className="w-4 h-4" />
+                                                    <span className="hidden md:inline">{customPromptsSelectionState === 'all' ? 'Deselect All' : 'Select All'}</span>
                                                 </button>
                                             </div>
                                         )}
@@ -1430,14 +1682,15 @@ export default function Studio() {
                                 <div className="mb-6">
                                     <button onClick={() => setIsWizardOpen(true)} className="w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2.5 px-4 rounded-md transition mb-4">
                                         <Icon path={ICONS.WAND} className="w-5 h-5"/>
-                                        <span>AI Prompt Wizard</span>
+                                        <span className="hidden sm:inline">AI Prompt Wizard</span>
+                                        <span className="sm:hidden">AI Wizard</span>
                                     </button>
                                     <details className="group/add-manual bg-slate-800/50 rounded-md border border-slate-700">
                                         <summary className="list-none cursor-pointer flex items-center justify-between p-3 font-medium">
                                             <span>Add Prompts Manually</span>
                                             <Icon path={ICONS.CHEVRON_DOWN} className="w-5 h-5 transition-transform group-open/add-manual:rotate-180" />
                                         </summary>
-                                        <div className="p-3 border-t border-slate-700">
+                                        <div className="p-3 border-t border-slate-700 space-y-3">
                                             <textarea 
                                                 value={newPrompt} 
                                                 onChange={e => setNewPrompt(e.target.value)} 
@@ -1445,25 +1698,91 @@ export default function Studio() {
                                                 rows={4} 
                                                 className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 custom-scroll"
                                             ></textarea>
-                                            <button 
-                                                onClick={() => { 
-                                                    if(newPrompt.trim()) { 
-                                                        const prompts = newPrompt.split('\n').map(p => p.trim()).filter(p => p.length > 0);
-                                                        if (prompts.length > 0) {
-                                                            handleWizardGenerate(prompts, false); 
+                                            <div className="flex items-center gap-2">
+                                                <select
+                                                    id="add-mode-select"
+                                                    className="flex-1 bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 text-sm"
+                                                >
+                                                    <option value="add">Add to Current Folder</option>
+                                                    <option value="replace">Replace Current Folder</option>
+                                                    <option value="folder">Create New Folder</option>
+                                                </select>
+                                                <button 
+                                                    onClick={() => { 
+                                                        if(newPrompt.trim()) { 
+                                                            const mode = (document.getElementById('add-mode-select') as HTMLSelectElement)?.value || 'add';
+                                                            const prompts = newPrompt.split('\n').map(p => p.trim()).filter(p => p.length > 0);
+                                                            if (prompts.length === 0) return;
+                                                            
+                                                            if (mode === 'folder') {
+                                                                // Generate default folder name with incremented number
+                                                                const existingFolders = activeProject?.folders.filter(f => f.type === 'prompt') || [];
+                                                                const baseName = 'New Prompts';
+                                                                let folderName = baseName;
+                                                                let counter = 2;
+                                                                while (existingFolders.some(f => f.name === folderName)) {
+                                                                    folderName = `${baseName} (${counter})`;
+                                                                    counter++;
+                                                                }
+                                                                
+                                                                const userInput = prompt('Enter name for the new folder:', folderName);
+                                                                const finalFolderName = userInput && userInput.trim() ? userInput.trim() : folderName;
+                                                                
+                                                                const newFolderId = crypto.randomUUID();
+                                                                const newFolder: Folder = { 
+                                                                    id: newFolderId, 
+                                                                    name: finalFolderName, 
+                                                                    parentId: null, 
+                                                                    createdAt: Date.now(), 
+                                                                    type: 'prompt' 
+                                                                };
+                                                                
+                                                                // Update project and switch to new folder FIRST
+                                                                updateActiveProject(p => ({...p, folders: [...p.folders, newFolder]}));
+                                                                updateUser(u => ({ ...u, activePromptFolderId: newFolderId }));
+                                                                
+                                                                // Then add prompts to the new folder
+                                                                setTimeout(() => {
+                                                                    const newCustomPrompts: CustomPrompt[] = prompts.map(text => ({
+                                                                        id: crypto.randomUUID(),
+                                                                        name: text.length > 50 ? text.substring(0, 50) + '...' : text,
+                                                                        version: '1.0',
+                                                                        text,
+                                                                        tags: [],
+                                                                        folderId: newFolderId, // Use the new folder ID
+                                                                        referenceAssetIds: [],
+                                                                        createdAt: Date.now()
+                                                                    }));
+                                                                    
+                                                                    updateActiveProject(p => ({
+                                                                        ...p, 
+                                                                        customPrompts: [...p.customPrompts, ...newCustomPrompts]
+                                                                    }));
+                                                                    
+                                                                    addNotification(`Created folder "${finalFolderName}" with ${prompts.length} prompt(s).`);
+                                                                }, 100);
+                                                                
+                                                                // Reset dropdown to "add"
+                                                                const selectEl = document.getElementById('add-mode-select') as HTMLSelectElement;
+                                                                if (selectEl) selectEl.value = 'add';
+                                                            } else if (mode === 'replace') {
+                                                                handleWizardGenerate(prompts, true);
+                                                            } else {
+                                                                handleWizardGenerate(prompts, false); 
+                                                            }
                                                             setNewPrompt(''); 
                                                         }
-                                                    } 
-                                                }} 
-                                                disabled={promptsToAddCount === 0}
-                                                className="mt-2 flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
-                                            >
-                                                <Icon path={ICONS.PLUS}/> Add {promptsToAddCount > 0 ? promptsToAddCount : ''} Prompt{promptsToAddCount !== 1 ? 's' : ''}
-                                            </button>
+                                                    }} 
+                                                    disabled={promptsToAddCount === 0}
+                                                    className="px-4 py-2 flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                                                >
+                                                    <Icon path={ICONS.PLUS}/> <span className="hidden sm:inline">Add</span> {promptsToAddCount > 0 ? promptsToAddCount : ''} <span className="hidden sm:inline">Prompt{promptsToAddCount !== 1 ? 's' : ''}</span>
+                                                </button>
+                                            </div>
                                         </div>
                                     </details>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 min-w-0 overflow-x-hidden">
                                     {filteredCustomPrompts.map((p, i) => <PromptCard 
                                         key={p.id} 
                                         prompt={p}
@@ -1509,7 +1828,7 @@ export default function Studio() {
                                             onGenerateSelected={() => handleBatchGenerate(selectedPrompts.filter(id => category.prompts.includes(id)))}
                                         />
                                     </summary>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10 min-w-0 overflow-x-hidden">
                                         {category.prompts.map((p_text, i) => {
                                             const prompt = allPrompts.find(pr => pr.id === p_text)!;
                                             return <PromptCard
@@ -1558,12 +1877,19 @@ export default function Studio() {
                 onGenerate={handleWizardGenerate}
                 addNotification={addNotification}
                 devMode={devMode}
+                existingPrompts={activeProject?.customPrompts || []}
+            />
+
+            <CoffeeModal 
+                isOpen={isCoffeeModalOpen}
+                onClose={() => setIsCoffeeModalOpen(false)}
             />
 
             <PhotoGallery 
                 project={activeProject}
-                isVisible={isGalleryOpen} 
-                onClose={() => setIsGalleryOpen(false)} 
+                user={user}
+                isVisible={isGalleryOpen}
+                onClose={() => setIsGalleryOpen(false)}
                 onSelectFolder={folderId => updateUser(u => ({...u, activeAssetFolderId: folderId}))}
                 onFolderAction={(action, folderId) => handleFolderAction(action, folderId, 'asset')}
                 selectedImageIds={selectedImageIds}
@@ -1580,6 +1906,8 @@ export default function Studio() {
                 redoUser={redoUser}
                 canUndo={canUndo}
                 canRedo={canRedo}
+                onMoveFolderToProject={handleMoveFolderToProject}
+                onSwitchProject={handleSwitchProject}
             />
             
             <ImageViewer 
@@ -1635,6 +1963,10 @@ export default function Studio() {
                 setDevMode={setDevMode}
                 confirmOnDelete={confirmOnDelete}
                 setConfirmOnDelete={setConfirmOnDelete}
+                apiKey={user?.apiKey}
+                setApiKey={(key) => updateUser(u => ({...u, apiKey: key}))}
+                localStoragePath={user?.localStoragePath}
+                setLocalStoragePath={(path) => updateUser(u => ({...u, localStoragePath: path}))}
             />
 
             <ReferenceAssetSelectorModal
@@ -1651,6 +1983,9 @@ export default function Studio() {
                 onSave={handleRenameSave}
                 title={!renameTarget?.id ? `Create New ${renameTarget?.type}` : `Rename ${renameTarget?.type}`}
                 initialName={renameTarget?.name || ""}
+                showProjectSelector={renameTarget?.type === 'folder' && !!renameTarget?.id}
+                projects={user?.projects || []}
+                currentProjectId={activeProject?.id}
             />
             <ConfirmationModal
                 isOpen={!!deleteTarget}

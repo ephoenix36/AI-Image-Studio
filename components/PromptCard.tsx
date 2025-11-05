@@ -102,8 +102,8 @@ export const PromptCard: React.FC<PromptCardProps> = ({
     };
 
     return (
-       <div className="bg-slate-800/50 backdrop-blur-md rounded-2xl shadow-xl border border-slate-700 overflow-hidden flex flex-col group/card transition-all duration-300 hover:border-blue-500/50 relative min-h-[16rem]">
-            <div className="p-4 flex-1 flex flex-col">
+       <div className="bg-slate-800/50 backdrop-blur-md rounded-2xl shadow-xl border border-slate-700 overflow-hidden flex flex-col group/card transition-all duration-300 hover:border-blue-500/50 relative min-h-[16rem] min-w-0 max-w-full">
+            <div className="p-4 flex-1 flex flex-col min-w-0">
                 <div className="relative flex-1">
                     <div className="absolute top-0 right-0 flex flex-col items-end gap-2 opacity-0 group-hover/card:opacity-100 transition-opacity z-10">
                         <Tooltip text="Copy prompt"><button onClick={() => onCopy(promptText)} className="p-1.5 text-slate-300 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-md"><Icon path={ICONS.COPY} className="w-4 h-4"/></button></Tooltip>
@@ -116,7 +116,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
                             </>
                         )}
                     </div>
-                    <div className="transition-all duration-300 group-hover/card:pr-10 mb-4">
+                    <div className="transition-all duration-300 group-hover/card:pr-10 mb-4 min-w-0">
                     {isEditing ? (
                         <div className="space-y-2">
                            <div>
@@ -185,7 +185,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({
                                     {displayedData.tags.map(tag => tag && <span key={tag} className="text-xs bg-cyan-900/50 text-cyan-300 px-2 py-0.5 rounded-full">{tag}</span>)}
                                 </div>
                             )}
-                            <div className="text-slate-300 text-sm leading-relaxed p-2 bg-slate-900/40 rounded-md max-h-24 overflow-y-auto custom-scroll border border-slate-700/50 transition-all duration-300">
+                            <div className="text-slate-300 text-sm leading-relaxed p-2 bg-slate-900/40 rounded-md max-h-24 overflow-y-auto custom-scroll border border-slate-700/50 transition-all duration-300 break-words">
                                 {promptText.split(/(\[subject\])/).map((part, i) => part === '[subject]' ? <span key={i} className="text-cyan-400 font-bold bg-slate-700/80 px-1.5 py-0.5 rounded">{subjectDescription || '[subject]'}</span> : part)}
                             </div>
                         </div>
@@ -194,17 +194,19 @@ export const PromptCard: React.FC<PromptCardProps> = ({
                 </div>
 
                 <div className="mb-4 flex-grow flex flex-col justify-center">
-                    {isLoading && (
-                        <div className="flex items-center justify-center my-4">
-                            <div className="w-8 h-8 border-4 border-slate-600 border-t-cyan-400 rounded-full animate-spin"></div>
-                            <button onClick={() => onStop(prompt.id)} className="ml-4 text-red-400 hover:text-red-300 font-bold">Stop</button>
-                        </div>
-                    )}
-                    
-                    {!isLoading && versionFilteredAssets.length > 0 && (
+                    {versionFilteredAssets.length > 0 || isLoading ? (
                         <div>
                             {showPreviews ? (
                                 <div className="flex space-x-2 overflow-x-auto pb-2 custom-scroll">
+                                    {isLoading && (
+                                        <div className="w-24 h-24 flex-shrink-0 flex items-center justify-center bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-md border-2 border-cyan-500/30 relative overflow-hidden">
+                                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-400/10 to-transparent animate-shimmer"></div>
+                                            <div className="relative">
+                                                <div className="w-10 h-10 border-3 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin"></div>
+                                                <div className="absolute inset-0 w-10 h-10 border-3 border-transparent border-b-blue-500 rounded-full animate-spin-slow"></div>
+                                            </div>
+                                        </div>
+                                    )}
                                     {versionFilteredAssets.map((asset, assetIndex) => (
                                         <div key={asset.id} className="relative group/img flex-shrink-0" onClick={() => onPreviewClick(asset)}>
                                             <img src={asset.imageUrl} alt={`Preview ${assetIndex}`} className="w-24 h-24 object-cover rounded-md cursor-pointer bg-slate-900/40"/>
@@ -212,24 +214,48 @@ export const PromptCard: React.FC<PromptCardProps> = ({
                                     ))}
                                 </div>
                             ) : (
-                                <div className="relative group/img" onClick={() => onPreviewClick(versionFilteredAssets[previewIndex])}>
-                                    <img src={versionFilteredAssets[previewIndex]?.imageUrl} alt="Latest preview" className="w-full max-h-48 object-contain rounded-lg cursor-pointer bg-slate-900/40"/>
-                                    {versionFilteredAssets.length > 1 && (
-                                        <>
-                                            <button onClick={handlePrev} className="absolute left-1 top-1/2 -translate-y-1/2 bg-slate-800/50 hover:bg-slate-700/80 p-1 rounded-full text-white opacity-0 group-hover/img:opacity-100 transition-opacity"><Icon path={ICONS.CHEVRON_LEFT} className="w-5 h-5"/></button>
-                                            <button onClick={handleNext} className="absolute right-1 top-1/2 -translate-y-1/2 bg-slate-800/50 hover:bg-slate-700/80 p-1 rounded-full text-white opacity-0 group-hover/img:opacity-100 transition-opacity"><Icon path={ICONS.CHEVRON_RIGHT} className="w-5 h-5"/></button>
-                                            <div className="absolute bottom-1 right-1 bg-slate-900/70 text-white text-xs px-1.5 py-0.5 rounded">{previewIndex + 1} / {versionFilteredAssets.length}</div>
-                                        </>
+                                <div className="relative">
+                                    {isLoading && versionFilteredAssets.length === 0 ? (
+                                        <div className="w-full aspect-video flex items-center justify-center bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-lg border-2 border-cyan-500/30 relative overflow-hidden">
+                                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-cyan-400/10 to-transparent animate-shimmer"></div>
+                                            <div className="relative flex flex-col items-center gap-3">
+                                                <div className="relative">
+                                                    <div className="w-16 h-16 border-4 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin"></div>
+                                                    <div className="absolute inset-0 w-16 h-16 border-4 border-transparent border-b-blue-500 rounded-full animate-spin-slow"></div>
+                                                    <div className="absolute inset-2 w-12 h-12 border-2 border-cyan-400/30 rounded-full animate-pulse"></div>
+                                                </div>
+                                                <button onClick={(e) => { e.stopPropagation(); onStop(prompt.id); }} className="mt-1 text-red-400 hover:text-red-300 font-bold text-xs underline">Stop</button>
+                                            </div>
+                                        </div>
+                                    ) : versionFilteredAssets[previewIndex] && (
+                                        <div className="relative group/img" onClick={() => onPreviewClick(versionFilteredAssets[previewIndex])}>
+                                            <img 
+                                                src={versionFilteredAssets[previewIndex]?.imageUrl} 
+                                                alt="Latest preview" 
+                                                className="w-full max-h-[70vh] object-contain rounded-lg cursor-pointer bg-slate-900/40"
+                                                style={{
+                                                    maxWidth: `${(versionFilteredAssets[previewIndex]?.resolution?.width || 1024) * 1.5}px`,
+                                                    maxHeight: `${(versionFilteredAssets[previewIndex]?.resolution?.height || 1024) * 1.5}px`
+                                                }}
+                                            />
+                                            {versionFilteredAssets.length > 1 && (
+                                                <>
+                                                    <button onClick={handlePrev} className="absolute left-1 top-1/2 -translate-y-1/2 bg-slate-800/50 hover:bg-slate-700/80 p-1 rounded-full text-white opacity-0 group-hover/img:opacity-100 transition-opacity"><Icon path={ICONS.CHEVRON_LEFT} className="w-5 h-5"/></button>
+                                                    <button onClick={handleNext} className="absolute right-1 top-1/2 -translate-y-1/2 bg-slate-800/50 hover:bg-slate-700/80 p-1 rounded-full text-white opacity-0 group-hover/img:opacity-100 transition-opacity"><Icon path={ICONS.CHEVRON_RIGHT} className="w-5 h-5"/></button>
+                                                    <div className="absolute bottom-1 right-1 bg-slate-900/70 text-white text-xs px-1.5 py-0.5 rounded">{previewIndex + 1} / {versionFilteredAssets.length}</div>
+                                                </>
+                                            )}
+                                        </div>
                                     )}
                                 </div>
                             )}
                         </div>
-                    )}
+                    ) : null}
                 </div>
             
                 <div className="mt-auto flex items-center gap-2 flex-wrap">
                     <Tooltip text="Generate image" position="top">
-                        <button onClick={() => onGenerate(promptText, prompt.id)} disabled={isLoading || isEditing} className={`flex-1 h-9 flex items-center justify-center gap-2 text-sm text-white font-bold px-3 rounded-md transition disabled:bg-slate-600 disabled:cursor-wait ${isPromptSelected && isBatchMode ? 'bg-gradient-to-r from-amber-500 to-orange-600' : 'bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400'}`}>
+                        <button onClick={() => onGenerate(promptText, prompt.id)} disabled={isLoading || isEditing} className={`flex-1 h-9 flex items-center justify-center gap-2 text-sm text-white font-bold px-3 rounded-md transition disabled:bg-slate-600 disabled:cursor-not-allowed ${isPromptSelected && isBatchMode ? 'bg-gradient-to-r from-amber-500 to-orange-600' : 'bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400'}`}>
                            <Icon path={ICONS.SPARKLES} className="w-5 h-5"/>
                            <span className="pl-1">Generate</span>
                         </button>

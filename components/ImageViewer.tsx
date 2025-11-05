@@ -3,6 +3,7 @@ import type { GeneratedAsset, ReferenceImage } from '../types';
 import { Icon } from './Icon';
 import { ICONS } from '../constants';
 import { Tooltip } from './Tooltip';
+import { useBodyScrollLock } from '../utils';
 
 interface ImageViewerProps {
     isOpen: boolean;
@@ -17,10 +18,16 @@ interface ImageViewerProps {
 }
 
 export const ImageViewer: React.FC<ImageViewerProps> = ({ isOpen, asset, allAssets, onClose, onUpdateAsset, onDeleteAsset, onMagicEdit, onSelectAsset, isSelected }) => {
+    useBodyScrollLock(isOpen);
+    
     const [currentIndex, setCurrentIndex] = useState(0);
     const [currentAsset, setCurrentAsset] = useState<GeneratedAsset | ReferenceImage | null>(asset);
     const [isEditingName, setIsEditingName] = useState(false);
     const [name, setName] = useState("");
+    const [zoom, setZoom] = useState(1);
+    const [pan, setPan] = useState({ x: 0, y: 0 });
+    const [isPanning, setIsPanning] = useState(false);
+    const [startPan, setStartPan] = useState({ x: 0, y: 0 });
 
     useEffect(() => {
         if (asset && allAssets.length > 0) {
@@ -29,6 +36,8 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ isOpen, asset, allAsse
                 setCurrentIndex(index);
                 setCurrentAsset(allAssets[index]);
                 setName(allAssets[index].name);
+                setZoom(1);
+                setPan({ x: 0, y: 0 });
             }
         }
     }, [asset, allAssets, isOpen]);
@@ -46,6 +55,8 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ isOpen, asset, allAsse
             setCurrentIndex(nextIndex);
             setCurrentAsset(allAssets[nextIndex]);
             setName(allAssets[nextIndex].name);
+            setZoom(1);
+            setPan({ x: 0, y: 0 });
         }
     }, [allAssets, currentIndex]);
     
@@ -56,20 +67,55 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ isOpen, asset, allAsse
             setCurrentIndex(prevIndex);
             setCurrentAsset(allAssets[prevIndex]);
             setName(allAssets[prevIndex].name);
+            setZoom(1);
+            setPan({ x: 0, y: 0 });
         }
     }, [allAssets, currentIndex]);
+    
+    const handleWheel = useCallback((e: React.WheelEvent) => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        setZoom(prev => Math.max(0.5, Math.min(5, prev + delta)));
+    }, []);
+
+    const handleMouseDown = useCallback((e: React.MouseEvent) => {
+        if (zoom > 1) {
+            setIsPanning(true);
+            setStartPan({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+        }
+    }, [zoom, pan]);
+
+    const handleMouseMove = useCallback((e: React.MouseEvent) => {
+        if (isPanning) {
+            setPan({ x: e.clientX - startPan.x, y: e.clientY - startPan.y });
+        }
+    }, [isPanning, startPan]);
+
+    const handleMouseUp = useCallback(() => {
+        setIsPanning(false);
+    }, []);
     
     useEffect(() => {
         if (!isOpen) return;
         const handleKeyDown = (e: KeyboardEvent) => {
             if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
-            if (e.key === 'ArrowRight') handleNext();
-            if (e.key === 'ArrowLeft') handlePrev();
-            if (e.key === 'Escape') handleClose();
+            if (e.key === 'ArrowRight') {
+                e.stopPropagation();
+                handleNext();
+            }
+            if (e.key === 'ArrowLeft') {
+                e.stopPropagation();
+                handlePrev();
+            }
+            if (e.key === 'Escape') {
+                e.stopPropagation();
+                e.preventDefault();
+                handleClose();
+            }
         };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isOpen, handleNext, handlePrev, handleClose]);
+        window.addEventListener('keydown', handleKeyDown, true); // Use capture phase
+        return () => window.removeEventListener('keydown', handleKeyDown, true);
+    }, [isOpen, handleNext, handlePrev]);
 
     const handleNameSave = () => {
         if (currentAsset && name.trim()) {
@@ -86,16 +132,39 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ isOpen, asset, allAsse
     return (
          <div className="fixed inset-0 bg-black/80 backdrop-blur-lg flex flex-col items-center justify-center p-4 z-[60]" onClick={handleClose}>
             <button onClick={handleClose} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white text-4xl leading-none z-20">&times;</button>
-            {allAssets.length > 1 && <button onClick={handlePrev} className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 rounded-full p-2 text-white z-20"><Icon path={ICONS.CHEVRON_LEFT} className="w-8 h-8"/></button>}
-            {allAssets.length > 1 && <button onClick={handleNext} className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 rounded-full p-2 text-white z-20"><Icon path={ICONS.CHEVRON_RIGHT} className="w-8 h-8"/></button>}
+            {allAssets.length > 1 && <button onClick={handleNext} className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 rounded-full p-2 text-white z-20"><Icon path={ICONS.CHEVRON_LEFT} className="w-8 h-8"/></button>}
+            {allAssets.length > 1 && <button onClick={handlePrev} className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 rounded-full p-2 text-white z-20"><Icon path={ICONS.CHEVRON_RIGHT} className="w-8 h-8"/></button>}
             
             <main className="flex-1 flex w-full h-full items-center justify-center relative min-h-0" onClick={e => e.stopPropagation()}>
-    <div className="relative group/viewer">
-        <img src={imageUrl} alt={currentAsset.name} className="max-w-full max-h-full object-contain rounded-lg"/>
-        <div className="absolute top-2 right-2 flex flex-col items-center gap-2 opacity-0 group-hover/viewer:opacity-100 transition-opacity duration-300 bg-slate-900/80 backdrop-blur-sm p-2 rounded-lg border border-slate-700">
-            {isGenerated && <Tooltip text={isSelected ? 'Deselect' : 'Select'}><button onClick={() => onSelectAsset(currentAsset.id, !isSelected)} className={`p-2 rounded-md transition ${isSelected ? 'bg-green-600 hover:bg-green-500' : 'bg-slate-800 hover:bg-slate-700'}`}><Icon path={ICONS.CHECK} className="w-5 h-5"/></button></Tooltip>}
-            <Tooltip text="Magic Edit"><button onClick={() => onMagicEdit(currentAsset)} className="p-2 rounded-md bg-slate-800 hover:bg-slate-700 transition text-cyan-400"><Icon path={ICONS.SPARKLES} className="w-5 h-5"/></button></Tooltip>
-            <Tooltip text="Delete"><button onClick={() => onDeleteAsset(currentAsset.id)} className="p-2 rounded-md bg-slate-800 hover:bg-slate-700 transition text-red-400"><Icon path={ICONS.TRASH} className="w-5 h-5"/></button></Tooltip>
+    <div 
+        className="relative group/viewer overflow-hidden"
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        style={{ cursor: zoom > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default' }}
+    >
+        <img 
+            src={imageUrl} 
+            alt={currentAsset.name} 
+            className="max-w-full max-h-full object-contain rounded-lg select-none"
+            style={{
+                transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+                transition: isPanning ? 'none' : 'transform 0.1s ease-out'
+            }}
+            draggable={false}
+        />
+        <div className="absolute top-2 left-2 flex flex-col items-stretch gap-1 opacity-0 group-hover/viewer:opacity-100 transition-opacity duration-300 bg-slate-900/80 backdrop-blur-sm p-2 rounded-lg border border-slate-700 min-w-[80px]">
+            <Tooltip text="Zoom In"><button onClick={() => setZoom(prev => Math.min(5, prev + 0.25))} className="w-full p-2 rounded-md bg-slate-800 hover:bg-slate-700 transition"><span className="text-lg font-bold">+</span></button></Tooltip>
+            <div className="text-center text-xs text-slate-400">{Math.round(zoom * 100)}%</div>
+            <Tooltip text="Zoom Out"><button onClick={() => setZoom(prev => Math.max(0.5, prev - 0.25))} className="w-full p-2 rounded-md bg-slate-800 hover:bg-slate-700 transition"><span className="text-lg font-bold">−</span></button></Tooltip>
+            <Tooltip text="Reset Zoom"><button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="w-full p-1 rounded-md bg-slate-800 hover:bg-slate-700 transition text-xs">Reset</button></Tooltip>
+        </div>
+        <div className="absolute top-2 right-2 flex flex-col items-stretch gap-2 opacity-0 group-hover/viewer:opacity-100 transition-opacity duration-300 bg-slate-900/80 backdrop-blur-sm p-2 rounded-lg border border-slate-700 min-w-[80px]">
+            {isGenerated && <Tooltip text={isSelected ? 'Deselect' : 'Select'}><button onClick={() => onSelectAsset(currentAsset.id, !isSelected)} className={`w-full p-2 rounded-md transition ${isSelected ? 'bg-green-600 hover:bg-green-500' : 'bg-slate-800 hover:bg-slate-700'}`}><Icon path={ICONS.CHECK} className="w-5 h-5 mx-auto"/></button></Tooltip>}
+            <Tooltip text="Magic Edit"><button onClick={() => onMagicEdit(currentAsset)} className="w-full p-2 rounded-md bg-slate-800 hover:bg-slate-700 transition text-cyan-400"><Icon path={ICONS.SPARKLES} className="w-5 h-5 mx-auto"/></button></Tooltip>
+            <Tooltip text="Delete"><button onClick={() => onDeleteAsset(currentAsset.id)} className="w-full p-2 rounded-md bg-slate-800 hover:bg-slate-700 transition text-red-400"><Icon path={ICONS.TRASH} className="w-5 h-5 mx-auto"/></button></Tooltip>
         </div>
     </div>
 </main>

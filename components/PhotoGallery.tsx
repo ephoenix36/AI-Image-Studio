@@ -50,6 +50,7 @@ const MoveAssetsModal: React.FC<{
 
 interface PhotoGalleryProps {
     project: Project | undefined;
+    user: { projects: Project[] };
     isVisible: boolean;
     onClose: () => void;
     onSelectFolder: (folderId: string | null) => void;
@@ -68,15 +69,27 @@ interface PhotoGalleryProps {
     redoUser: () => void;
     canUndo: boolean;
     canRedo: boolean;
+    onMoveFolderToProject?: (folderId: string, projectId: string) => void;
+    onSwitchProject?: (projectId: string) => void;
 }
 
 export const PhotoGallery: React.FC<PhotoGalleryProps> = ({ 
-    project, isVisible, onClose, onSelectFolder, onFolderAction,
+    project, user, isVisible, onClose, onSelectFolder, onFolderAction,
     selectedImageIds, setSelectedImageIds, onAssetClick, onMagicEdit, 
     addNotification, onAssetUpdate, onDeleteAssets, onMoveAssets, activeFolderId,
-    onOpenBatchEditor, undoUser, redoUser, canUndo, canRedo
+    onOpenBatchEditor, undoUser, redoUser, canUndo, canRedo, onMoveFolderToProject, onSwitchProject
 }) => {
     useBodyScrollLock(isVisible);
+    
+    useEffect(() => {
+        if (!isVisible) return;
+        const handleEscape = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', handleEscape);
+        return () => window.removeEventListener('keydown', handleEscape);
+    }, [isVisible, onClose]);
+    
     const assets = project?.generatedAssets || [];
     const folders = project?.folders.filter(f => f.type === 'asset') || [];
     const referenceAssets = project?.referenceAssets || [];
@@ -94,11 +107,12 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
     const [sortBy, setSortBy] = useState<'createdAt' | 'name'>('createdAt');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [isSelectAll, setIsSelectAll] = useState(false);
+    const [groupByPrompt, setGroupByPrompt] = useState(false);
     
     const lastClickedId = useRef<string | null>(null);
 
     const filteredAndSortedAssets = useMemo(() => {
-        const visibleAssets = activeFolderId === null 
+        let visibleAssets = activeFolderId === null 
             ? allImageAssets
             : allImageAssets.filter(a => a.folderId === activeFolderId);
         
@@ -116,6 +130,30 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                 return 0;
             });
     }, [allImageAssets, filter, sortBy, sortOrder, activeFolderId]);
+    
+    // Group images by prompt if groupByPrompt is enabled
+    const groupedByPrompt = useMemo(() => {
+        if (!groupByPrompt) return null;
+        
+        const groups = new Map<string, (GeneratedAsset | ReferenceImage)[]>();
+        
+        filteredAndSortedAssets.forEach(asset => {
+            if ('prompt' in asset) {
+                // Normalize prompt text to group similar prompts together
+                const normalizedPrompt = asset.prompt.trim().toLowerCase();
+                if (!groups.has(normalizedPrompt)) {
+                    groups.set(normalizedPrompt, []);
+                }
+                groups.get(normalizedPrompt)!.push(asset);
+            }
+        });
+        
+        return Array.from(groups.entries()).map(([prompt, assets]) => ({
+            prompt,
+            originalPrompt: assets[0] && 'prompt' in assets[0] ? assets[0].prompt : prompt,
+            assets
+        }));
+    }, [filteredAndSortedAssets, groupByPrompt]);
 
     const handleSelect = (assetId: string, e: React.MouseEvent) => {
         const newSelectedIds = new Set(selectedImageIds);
@@ -213,6 +251,12 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                 <button onClick={() => setSortOrder(p => p === 'asc' ? 'desc' : 'asc')} className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-md text-sm">
                     {sortOrder === 'desc' ? '↓' : '↑'}
                 </button>
+                <button 
+                    onClick={() => setGroupByPrompt(!groupByPrompt)} 
+                    className={`px-3 py-1.5 rounded-md text-sm transition ${groupByPrompt ? 'bg-cyan-600 text-white' : 'bg-slate-800 border border-slate-600'}`}
+                >
+                    Group by Prompt
+                </button>
             </div>
                 </div>
             </header>
@@ -229,13 +273,38 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
 
             <div className="flex-grow flex min-h-0">
                 <aside className={`flex-shrink-0 border-r border-slate-700 overflow-y-auto custom-scroll transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-0 p-0 border-r-0 opacity-0' : 'w-64 p-4 opacity-100'}`}>
+                    <div className="mb-4">
+                        <label className="text-xs text-slate-400 mb-1 block">Project</label>
+                        <select 
+                            value={project?.id || ''} 
+                            onChange={(e) => {
+                                if (onSwitchProject) {
+                                    onSwitchProject(e.target.value);
+                                }
+                            }}
+                            className="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-1.5 text-sm"
+                        >
+                            {user.projects.map(proj => (
+                                <option key={proj.id} value={proj.id}>{proj.name}</option>
+                            ))}
+                        </select>
+                    </div>
                     <div className="flex justify-between items-center mb-4">
                         <button onClick={() => onFolderAction('create', null)} className="flex-1 text-sm bg-slate-700 hover:bg-slate-600 py-2 px-4 rounded-md">New Folder</button>
                         <button onClick={() => setIsSidebarCollapsed(p => !p)} className="p-2 ml-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-full transition-colors">
                             <Icon path={ICONS.CHEVRON_LEFT} className="w-6 h-6" />
                         </button>
                     </div>
-                    <FolderTree folders={folders} selectedFolderId={activeFolderId} onSelectFolder={onSelectFolder} onFolderAction={onFolderAction} onDrop={(folderId) => onMoveAssets(Array.from(selectedImageIds), folderId)} rootLabel="Home" />
+                    <FolderTree 
+                        folders={folders} 
+                        selectedFolderId={activeFolderId} 
+                        onSelectFolder={onSelectFolder} 
+                        onFolderAction={onFolderAction} 
+                        onDrop={(folderId) => onMoveAssets(Array.from(selectedImageIds), folderId)} 
+                        rootLabel="Home" 
+                        projects={user.projects}
+                        onMoveFolderToProject={onMoveFolderToProject}
+                    />
                 </aside>
                 
                 <main className="flex-1 flex flex-col">
@@ -268,28 +337,102 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
 
                     <div className="p-6 overflow-y-auto custom-scroll flex-grow">
                         {filteredAndSortedAssets.length > 0 ? (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-5">
-                                {filteredAndSortedAssets.map(asset => {
-                                    const isSelected = selectedImageIds.has(asset.id);
-                                    const imageUrl = 'imageUrl' in asset ? asset.imageUrl : asset.previewUrl;
-                                    return (
-                                        <div key={asset.id} className="relative group/asset cursor-pointer aspect-square" onClick={(e) => handleSelect(asset.id, e)}>
-                                            <img src={imageUrl} alt={asset.name} className="w-full h-full object-cover rounded-lg bg-slate-800" />
-                                            <div className={`absolute inset-0 rounded-lg transition-all ${isSelected ? 'ring-4 ring-blue-500' : 'group-hover/asset:ring-4 group-hover/asset:ring-slate-500'}`}></div>
-                                            <div className="absolute top-2 left-2 w-5 h-5 rounded-sm border-2 border-white flex items-center justify-center transition" style={{ backgroundColor: isSelected ? '#3b82f6' : 'rgba(0,0,0,0.3)' }}>
-                                                {isSelected && <Icon path={ICONS.CHECK} className="w-3 h-3 text-white" />}
+                            groupByPrompt && groupedByPrompt ? (
+                                // Grouped by prompt view
+                                <div className="space-y-8">
+                                    {groupedByPrompt.map((group, idx) => (
+                                        <div key={idx} className="space-y-3">
+                                            <div className="flex items-start gap-3 pb-2 border-b border-slate-700">
+                                                <Icon path={ICONS.SPARKLES} className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" />
+                                                <div className="flex-1">
+                                                    <p className="text-sm text-slate-300 font-medium">Prompt:</p>
+                                                    <p className="text-sm text-slate-400 italic">{group.originalPrompt}</p>
+                                                    <p className="text-xs text-slate-500 mt-1">{group.assets.length} image{group.assets.length !== 1 ? 's' : ''}</p>
+                                                </div>
                                             </div>
-                                            <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent rounded-b-lg opacity-0 group-hover/asset:opacity-100 transition-opacity">
-                                                <p className="text-xs text-white truncate">{asset.name}</p>
-                                            </div>
-                                            <div className="absolute top-2 right-2 flex flex-col gap-1.5 opacity-0 group-hover/asset:opacity-100 transition-opacity">
-                                                <button onClick={(e)=>{ e.stopPropagation(); onAssetClick(asset); }} className="p-1.5 bg-slate-800/70 hover:bg-slate-700 rounded-md"><Icon path={ICONS.SEARCH} className="w-4 h-4" /></button>
-                                                <button onClick={(e)=>{ e.stopPropagation(); onMagicEdit(asset); }} className="p-1.5 bg-slate-800/70 hover:bg-slate-700 rounded-md text-cyan-400"><Icon path={ICONS.SPARKLES} className="w-4 h-4" /></button>
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-5">
+                                                {group.assets.map(asset => {
+                                                    const isSelected = selectedImageIds.has(asset.id);
+                                                    const imageUrl = 'imageUrl' in asset ? asset.imageUrl : asset.previewUrl;
+                                                    return (
+                                                        <div 
+                                                            key={asset.id} 
+                                                            className="relative group/asset cursor-pointer aspect-square" 
+                                                            onClick={(e) => handleSelect(asset.id, e)}
+                                                            onDoubleClick={(e) => {
+                                                                e.stopPropagation();
+                                                                onAssetClick(asset);
+                                                            }}
+                                                            draggable
+                                                            onDragStart={(e) => {
+                                                                e.dataTransfer.effectAllowed = 'move';
+                                                                e.dataTransfer.setData('text/plain', asset.id);
+                                                                if (!selectedImageIds.has(asset.id)) {
+                                                                    setSelectedImageIds(new Set([asset.id]));
+                                                                }
+                                                            }}
+                                                        >
+                                                            <img src={imageUrl} alt={asset.name} className="w-full h-full object-cover rounded-lg bg-slate-800" />
+                                                            <div className={`absolute inset-0 rounded-lg transition-all ${isSelected ? 'ring-4 ring-blue-500' : 'group-hover/asset:ring-4 group-hover/asset:ring-slate-500'}`}></div>
+                                                            <div className="absolute top-2 left-2 w-5 h-5 rounded-sm border-2 border-white flex items-center justify-center transition" style={{ backgroundColor: isSelected ? '#3b82f6' : 'rgba(0,0,0,0.3)' }}>
+                                                                {isSelected && <Icon path={ICONS.CHECK} className="w-3 h-3 text-white" />}
+                                                            </div>
+                                                            <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent rounded-b-lg opacity-0 group-hover/asset:opacity-100 transition-opacity">
+                                                                <p className="text-xs text-white truncate">{asset.name}</p>
+                                                            </div>
+                                                            <div className="absolute top-2 right-2 flex flex-col gap-1.5 opacity-0 group-hover/asset:opacity-100 transition-opacity">
+                                                                <button onClick={(e)=>{ e.stopPropagation(); onAssetClick(asset); }} className="p-1.5 bg-slate-800/70 hover:bg-slate-700 rounded-md"><Icon path={ICONS.SEARCH} className="w-4 h-4" /></button>
+                                                                <button onClick={(e)=>{ e.stopPropagation(); onMagicEdit(asset); }} className="p-1.5 bg-slate-800/70 hover:bg-slate-700 rounded-md text-cyan-400"><Icon path={ICONS.SPARKLES} className="w-4 h-4" /></button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
-                                    );
-                                })}
-                            </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                // Standard grid view
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-5">
+                                    {filteredAndSortedAssets.map(asset => {
+                                        const isSelected = selectedImageIds.has(asset.id);
+                                        const imageUrl = 'imageUrl' in asset ? asset.imageUrl : asset.previewUrl;
+                                        return (
+                                            <div 
+                                                key={asset.id} 
+                                                className="relative group/asset cursor-pointer aspect-square" 
+                                                onClick={(e) => handleSelect(asset.id, e)}
+                                                onDoubleClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onAssetClick(asset);
+                                                }}
+                                                draggable
+                                                onDragStart={(e) => {
+                                                    e.dataTransfer.effectAllowed = 'move';
+                                                    e.dataTransfer.setData('text/plain', asset.id);
+                                                    // If the asset being dragged is not in selection, select it
+                                                    if (!selectedImageIds.has(asset.id)) {
+                                                        setSelectedImageIds(new Set([asset.id]));
+                                                    }
+                                                }}
+                                            >
+                                                <img src={imageUrl} alt={asset.name} className="w-full h-full object-cover rounded-lg bg-slate-800" />
+                                                <div className={`absolute inset-0 rounded-lg transition-all ${isSelected ? 'ring-4 ring-blue-500' : 'group-hover/asset:ring-4 group-hover/asset:ring-slate-500'}`}></div>
+                                                <div className="absolute top-2 left-2 w-5 h-5 rounded-sm border-2 border-white flex items-center justify-center transition" style={{ backgroundColor: isSelected ? '#3b82f6' : 'rgba(0,0,0,0.3)' }}>
+                                                    {isSelected && <Icon path={ICONS.CHECK} className="w-3 h-3 text-white" />}
+                                                </div>
+                                                <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent rounded-b-lg opacity-0 group-hover/asset:opacity-100 transition-opacity">
+                                                    <p className="text-xs text-white truncate">{asset.name}</p>
+                                                </div>
+                                                <div className="absolute top-2 right-2 flex flex-col gap-1.5 opacity-0 group-hover/asset:opacity-100 transition-opacity">
+                                                    <button onClick={(e)=>{ e.stopPropagation(); onAssetClick(asset); }} className="p-1.5 bg-slate-800/70 hover:bg-slate-700 rounded-md"><Icon path={ICONS.SEARCH} className="w-4 h-4" /></button>
+                                                    <button onClick={(e)=>{ e.stopPropagation(); onMagicEdit(asset); }} className="p-1.5 bg-slate-800/70 hover:bg-slate-700 rounded-md text-cyan-400"><Icon path={ICONS.SPARKLES} className="w-4 h-4" /></button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )
                         ) : (
                              <div className="w-full h-full flex items-center justify-center">
                                 <div className="text-center text-slate-500">
