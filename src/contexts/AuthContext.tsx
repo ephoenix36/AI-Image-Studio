@@ -4,6 +4,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   sendEmailVerification,
   updateProfile,
@@ -54,22 +56,72 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
-      
-      if (user) {
-        // Fetch user data from Firestore
-        const userDocRef = doc(db, 'users', user.uid);
-        const userDoc = await getDoc(userDocRef);
-        
-        if (userDoc.exists()) {
-          setUserData(userDoc.data() as User);
+    // Handle redirect result from Google Sign-In
+    getRedirectResult(auth)
+      .then(async (result) => {
+        if (result) {
+          console.log('Redirect result received:', result.user.uid);
+          const user = result.user;
+          try {
+            // Check if user data exists in Firestore
+            const userDocRef = doc(db, 'users', user.uid);
+            const userDoc = await getDoc(userDocRef);
+
+            if (!userDoc.exists()) {
+              console.log('Creating new user data for:', user.uid);
+              // Create new user data for first-time Google login
+              const newUserData = createDefaultUserData(user, user.displayName || '');
+              await setDoc(userDocRef, newUserData);
+              setUserData(newUserData);
+              console.log('User data created successfully');
+            } else {
+              console.log('User data already exists');
+              setUserData(userDoc.data() as User);
+            }
+          } catch (firestoreError: any) {
+            console.error('Firestore error after redirect:', firestoreError);
+            // Create local user data as fallback
+            const newUserData = createDefaultUserData(user, user.displayName || '');
+            setUserData(newUserData);
+          }
         }
-      } else {
+      })
+      .catch((error) => {
+        console.error('Error handling redirect result:', error);
+      });
+
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      try {
+        setCurrentUser(user);
+        
+        if (user) {
+          try {
+            // Fetch user data from Firestore
+            const userDocRef = doc(db, 'users', user.uid);
+            const userDoc = await getDoc(userDocRef);
+            
+            if (userDoc.exists()) {
+              setUserData(userDoc.data() as User);
+            } else {
+              // User document doesn't exist yet - might be first time sign-in
+              // The sign-in methods will create it
+              setUserData(null);
+            }
+          } catch (firestoreError: any) {
+            console.error('Error loading user data from Firestore:', firestoreError.message);
+            // If offline, user can still be authenticated but without data
+            // The app will prompt them to create data when they use features
+            setUserData(null);
+          }
+        } else {
+          setUserData(null);
+        }
+      } catch (error) {
+        console.error('Error in auth state change:', error);
         setUserData(null);
+      } finally {
+        setLoading(false);
       }
-      
-      setLoading(false);
     });
 
     return unsubscribe;
@@ -123,18 +175,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const loginWithGoogle = async () => {
-    const result = await signInWithPopup(auth, googleProvider);
-    const user = result.user;
+    // Use redirect instead of popup to avoid COOP issues
+    try {
+      await signInWithRedirect(auth, googleProvider);
+      // User will be redirected and handled by getRedirectResult in useEffect
+    } catch (error: any) {
+      // Fallback to popup if redirect fails
+      if (error.code === 'auth/operation-not-supported-in-this-environment') {
+        const result = await signInWithPopup(auth, googleProvider);
+        const user = result.user;
 
-    // Check if user data exists in Firestore
-    const userDocRef = doc(db, 'users', user.uid);
-    const userDoc = await getDoc(userDocRef);
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDoc = await getDoc(userDocRef);
 
-    if (!userDoc.exists()) {
-      // Create new user data for first-time Google login
-      const newUserData = createDefaultUserData(user, user.displayName || '');
-      await setDoc(userDocRef, newUserData);
-      setUserData(newUserData);
+        if (!userDoc.exists()) {
+          const newUserData = createDefaultUserData(user, user.displayName || '');
+          await setDoc(userDocRef, newUserData);
+          setUserData(newUserData);
+        }
+      } else {
+        throw error;
+      }
     }
   };
 
@@ -142,14 +203,23 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const result = await signInAnonymously(auth);
     const user = result.user;
 
-    const userDocRef = doc(db, 'users', user.uid);
-    const userDoc = await getDoc(userDocRef);
+    try {
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
 
-    if (!userDoc.exists()) {
+      if (!userDoc.exists()) {
+        const guestName = `Guest-${user.uid.slice(0, 6)}`;
+        const newUserData = createDefaultUserData(user, guestName);
+        await setDoc(userDocRef, newUserData);
+        setUserData(newUserData);
+      }
+    } catch (error: any) {
+      console.error('Failed to create user data in Firestore:', error.message);
+      // Create local user data even if Firestore fails
       const guestName = `Guest-${user.uid.slice(0, 6)}`;
       const newUserData = createDefaultUserData(user, guestName);
-      await setDoc(userDocRef, newUserData);
       setUserData(newUserData);
+      throw new Error('Signed in but could not sync data. You can still use the app.');
     }
   };
 
@@ -187,8 +257,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const updateUserData = async (data: Partial<User>) => {
     if (currentUser && userData) {
       const updatedData = { ...userData, ...data };
-      await setDoc(doc(db, 'users', currentUser.uid), updatedData);
-      setUserData(updatedData);
+      try {
+        await setDoc(doc(db, 'users', currentUser.uid), updatedData);
+        setUserData(updatedData);
+      } catch (error: any) {
+        console.error('Failed to update user data in Firestore:', error.message);
+        // Update local state even if Firestore fails
+        setUserData(updatedData);
+      }
     }
   };
 

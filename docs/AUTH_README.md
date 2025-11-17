@@ -23,6 +23,11 @@ The AI Image Studio now includes a complete authentication system with multiple 
    - Support for international phone numbers
    - Built-in reCAPTCHA protection
 
+4. **Guest (Anonymous) Sign-In**
+   - Start using the app instantly without creating an account
+   - A user profile is created in Firestore for data persistence
+   - You can later “upgrade” to a full account via other sign-in methods
+
 ### 🔒 Security Features
 
 - **Email Verification**: New email/password accounts must verify their email
@@ -175,7 +180,7 @@ VITE_GEMINI_API_KEY=
 
 ### Firebase Console Setup
 
-1. **Authentication Methods**: Enable Email/Password, Google, and Phone
+1. **Authentication Methods**: Enable Email/Password, Google, Phone, and Anonymous
 2. **Firestore Database**: Create database with proper security rules
 3. **Authorized Domains**: Add your deployment domain
 4. **Email Templates**: Customize verification email (optional)

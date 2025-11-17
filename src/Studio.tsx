@@ -151,8 +151,52 @@ export default function Studio() {
     useEffect(() => {
         if (userData && !user) {
             setUser(userData, true);
+        } else if (currentUser && !userData && !user) {
+            // User is authenticated but no userData from Firestore
+            // Try to load from localStorage first
+            const localStorageKey = `aiImageStudio_${currentUser.uid}`;
+            const savedData = localStorage.getItem(localStorageKey);
+            
+            if (savedData) {
+                console.log('Loading user data from localStorage backup');
+                try {
+                    const parsedData = JSON.parse(savedData);
+                    setUser(parsedData, true);
+                    return;
+                } catch (e) {
+                    console.error('Failed to parse localStorage data:', e);
+                }
+            }
+            
+            // Create default data if nothing in localStorage
+            console.log('Creating default user data for authenticated user');
+            const firstProjectId = crypto.randomUUID();
+            const defaultPromptFolderId = crypto.randomUUID();
+            const defaultAssetFolderId = crypto.randomUUID();
+            
+            const defaultUser: User = {
+                username: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+                projects: [
+                    {
+                        id: firstProjectId,
+                        name: 'My First Project',
+                        customPrompts: [],
+                        generatedAssets: [],
+                        referenceAssets: [],
+                        folders: [
+                            { id: defaultPromptFolderId, name: 'My Prompts', parentId: null, createdAt: Date.now(), type: 'prompt' },
+                            { id: defaultAssetFolderId, name: 'Home', parentId: null, createdAt: Date.now(), type: 'asset' },
+                        ],
+                        createdAt: Date.now(),
+                    }
+                ],
+                activeProjectId: firstProjectId,
+                activePromptFolderId: defaultPromptFolderId,
+                activeAssetFolderId: defaultAssetFolderId,
+            };
+            setUser(defaultUser, true);
         }
-    }, [userData]);
+    }, [userData, currentUser, user]);
 
     // Local UI State
     const [subjectDescription, setSubjectDescription] = useState("a high-end, solar-powered watch with a leather strap");
@@ -336,12 +380,11 @@ export default function Studio() {
         }
     }, []);
 
-    // Persist user data to localStorage whenever it changes
+    // Persist user data to localStorage whenever it changes (backup for Firestore)
     useEffect(() => {
-        if (user) {
+        if (user && currentUser) {
             try {
-                const users: User[] = JSON.parse(localStorage.getItem('aiImageStudioUsers') || '[]');
-                const userIndex = users.findIndex(u => u.username === user.username);
+                const localStorageKey = `aiImageStudio_${currentUser.uid}`;
                 
                 // Create a lightweight version without generated images (they're too large for localStorage)
                 const lightweightUser = {
@@ -353,14 +396,11 @@ export default function Studio() {
                     }))
                 };
                 
-                if (userIndex > -1) users[userIndex] = lightweightUser;
-                else users.push(lightweightUser);
-                
-                localStorage.setItem('aiImageStudioUsers', JSON.stringify(users));
-                localStorage.setItem('aiImageStudioActiveUser', user.username);
+                localStorage.setItem(localStorageKey, JSON.stringify(lightweightUser));
+                console.log('User data backed up to localStorage');
             } catch (error) {
                 if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-                    console.error('localStorage quota exceeded. Clearing old data...');
+                    console.error('localStorage quota exceeded. Clearing reference assets...');
                     // Try to clear and save again without images
                     try {
                         const lightweightUser = {
@@ -371,21 +411,19 @@ export default function Studio() {
                                 referenceAssets: [] // Also clear reference assets if still too large
                             }))
                         };
-                        localStorage.setItem('aiImageStudioUsers', JSON.stringify([lightweightUser]));
-                        localStorage.setItem('aiImageStudioActiveUser', user.username);
-                        addNotification('Storage limit reached. Generated images will not persist across sessions.', 'error');
+                        const localStorageKey = `aiImageStudio_${currentUser.uid}`;
+                        localStorage.setItem(localStorageKey, JSON.stringify(lightweightUser));
+                        addNotification('Storage limit reached. Images will not persist locally.', 'error');
                     } catch (e) {
                         console.error('Failed to save to localStorage even after clearing:', e);
-                        addNotification('Unable to save data. Please clear browser storage.', 'error');
+                        addNotification('Unable to save data locally. Use Firestore sync.', 'error');
                     }
                 } else {
                     console.error('Error saving to localStorage:', error);
                 }
             }
-        } else {
-            localStorage.removeItem('aiImageStudioActiveUser');
         }
-    }, [user]);
+    }, [user, currentUser]);
     
     useEffect(() => {
         if (!hasUserEditedDescription) {

@@ -17,9 +17,6 @@ interface ReferenceAssetSelectorModalProps {
 export const ReferenceAssetSelectorModal: React.FC<ReferenceAssetSelectorModalProps> = ({ isOpen, onClose, project, prompt, onSave }) => {
     useBodyScrollLock(isOpen);
     
-    // Bug fix: This guard must be the first thing in the component.
-    if (!isOpen || !prompt) return null;
-
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [activeTab, setActiveTab] = useState<'reference' | 'generated'>('reference');
     const [activeGeneratedFolderId, setActiveGeneratedFolderId] = useState<string | null>(null);
@@ -31,27 +28,11 @@ export const ReferenceAssetSelectorModal: React.FC<ReferenceAssetSelectorModalPr
             setSelectedIds(new Set());
         }
     }, [prompt, isOpen]);
-
-    const handleToggle = (id: string) => {
-        setSelectedIds(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(id)) newSet.delete(id);
-            else newSet.add(id);
-            return newSet;
-        });
-    };
-
-    const handleSave = () => {
-        if (prompt) {
-            onSave(prompt.id, Array.from(selectedIds));
-            onClose();
-        }
-    };
-
+    
     const referenceAssets = project?.referenceAssets || [];
     const generatedAssets = project?.generatedAssets || [];
     const assetFolders = project?.folders.filter(f => f.type === 'asset') || [];
-    const isBatchMode = prompt.id === '__BATCH_MODE__';
+    const isBatchMode = prompt?.id === '__BATCH_MODE__';
 
     const filteredGeneratedAssets = useMemo(() =>
         activeGeneratedFolderId === null
@@ -74,6 +55,25 @@ export const ReferenceAssetSelectorModal: React.FC<ReferenceAssetSelectorModalPr
         });
         return counts;
     }, [project]);
+
+    // Guard must come AFTER all hooks
+    if (!isOpen || !prompt) return null;
+
+    const handleToggle = (id: string) => {
+        setSelectedIds(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(id)) newSet.delete(id);
+            else newSet.add(id);
+            return newSet;
+        });
+    };
+
+    const handleSave = () => {
+        if (prompt) {
+            onSave(prompt.id, Array.from(selectedIds));
+            onClose();
+        }
+    };
 
     const TabButton = ({ tab, label }: { tab: 'reference' | 'generated', label: string }) => (
         <button 

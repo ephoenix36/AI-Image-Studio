@@ -11,7 +11,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1yZSpYAhNYfo5zNnBfZE9nl
 ## ✨ Features
 
 - 🎨 **AI Image Generation** - Create stunning images with Google's Gemini AI
-- 🔐 **Secure Authentication** - Multiple sign-in options (Email, Google, Phone/SMS)
+- 🔐 **Secure Authentication** - Multiple sign-in options (Email, Google, Phone/SMS, Guest/Anonymous)
 - ☁️ **Cloud Sync** - Access your projects from any device
 - 📱 **Multi-device Support** - Works on desktop and mobile
 - 🎯 **Custom Prompts** - Save and organize your favorite prompts
@@ -61,6 +61,7 @@ AI Image Studio now supports multiple authentication methods:
 - **Email/Password** - Traditional email and password sign-in with verification
 - **Google Sign-In** - One-click authentication with your Google account  
 - **Phone/SMS** - Sign in with your phone number and verification code
+- **Guest (Anonymous)** - Continue without an account; upgrade to a full account later
 
 For more details, see [AUTH_README.md](./AUTH_README.md)
 

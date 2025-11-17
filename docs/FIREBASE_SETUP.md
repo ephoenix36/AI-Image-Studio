@@ -50,6 +50,14 @@ This guide will help you set up Firebase Authentication for the AI Image Studio 
 - For testing, you can add test phone numbers in **Authentication** > **Settings** > **Phone numbers for testing**
 - Add test numbers in E.164 format (e.g., +1 650-555-3434) and a verification code (e.g., 123456)
 
+### Enable Anonymous Authentication
+
+1. In the same **Sign-in method** page, click on **Anonymous**
+2. Toggle **Enable** to ON
+3. Click **Save**
+
+With Anonymous sign-in enabled, users can continue as guests and a Firestore profile is created automatically.
+
 ## Step 4: Set Up Firestore Database
 
 1. In the Firebase Console, go to **Firestore Database**

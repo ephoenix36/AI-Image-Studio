@@ -30,6 +30,7 @@ export const AuthScreen: React.FC = () => {
         signup,
         login,
         loginWithGoogle,
+        loginAnonymously,
         loginWithPhone,
         verifyPhoneCode,
         sendVerificationEmail
@@ -88,6 +89,20 @@ export const AuthScreen: React.FC = () => {
             await loginWithGoogle();
         } catch (err: any) {
             setError(err.message || 'Google sign-in failed');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleGuestSignIn = async () => {
+        setError('');
+        setSuccess('');
+        setLoading(true);
+
+        try {
+            await loginAnonymously();
+        } catch (err: any) {
+            setError(err.message || 'Guest sign-in failed');
         } finally {
             setLoading(false);
         }
@@ -188,7 +203,7 @@ export const AuthScreen: React.FC = () => {
                         onClick={() => setShowPassword(!showPassword)}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-300"
                     >
-                        <Icon name={showPassword ? ICONS.EYE_OFF : ICONS.EYE} size={20} />
+                        <Icon path={showPassword ? ICONS.EYE_OFF : ICONS.EYE} className="w-5 h-5" />
                     </button>
                 </div>
             </div>
@@ -365,8 +380,16 @@ export const AuthScreen: React.FC = () => {
                                 disabled={loading}
                                 className="w-full bg-slate-700 hover:bg-slate-600 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition flex items-center justify-center gap-2"
                             >
-                                <Icon name={ICONS.PHONE} size={20} />
+                                <Icon path={ICONS.PHONE} className="w-5 h-5" />
                                 Continue with Phone
+                            </button>
+
+                            <button
+                                onClick={handleGuestSignIn}
+                                disabled={loading}
+                                className="w-full bg-slate-700 hover:bg-slate-600 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition mt-3"
+                            >
+                                Continue as Guest
                             </button>
                         </>
                     )}
