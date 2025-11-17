@@ -1,8 +1,8 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import Studio from './Studio';
-import { AuthProvider } from './contexts/AuthContext';
+import Studio from '@/Studio';
+import { AuthProvider } from '@/contexts/AuthContext';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

@@ -21,13 +21,11 @@ View your app in AI Studio: https://ai.studio/apps/drive/1yZSpYAhNYfo5zNnBfZE9nl
 
 ## 🚀 Quick Start
 
-**Prerequisites:**  Node.js 18+ and npm/yarn
+**Prerequisites:**  Node.js 18+ and pnpm
 
 ### 1. Install dependencies
 ```bash
-yarn install
-# or
-npm install
+pnpm install
 ```
 
 ### 2. Set up Firebase Authentication
@@ -51,9 +49,7 @@ Add your API keys to `.env`:
 
 ### 4. Run the app
 ```bash
-yarn dev
-# or
-npm run dev
+pnpm dev
 ```
 
 The app will be available at `http://localhost:3000`
@@ -70,10 +66,31 @@ For more details, see [AUTH_README.md](./AUTH_README.md)
 
 ## 📚 Documentation
 
-- [Firebase Setup Guide](./FIREBASE_SETUP.md) - How to set up Firebase for authentication
-- [Authentication Documentation](./AUTH_README.md) - Detailed auth features and usage
-- [Migration Guide](./MIGRATION_GUIDE.md) - Migrating from the old localStorage system
-- [Implementation Summary](./IMPLEMENTATION_SUMMARY.md) - Technical implementation details
+- [Firebase Setup Guide](./docs/FIREBASE_SETUP.md) - How to set up Firebase for authentication
+- [Authentication Documentation](./docs/AUTH_README.md) - Detailed auth features and usage
+- [Migration Guide](./docs/MIGRATION_GUIDE.md) - Migrating from the old localStorage system
+- [Implementation Summary](./docs/IMPLEMENTATION_SUMMARY.md) - Technical implementation details
+
+## 📁 Project Structure
+
+```
+AI-Image-Studio/
+├── docs/                    # Documentation files
+├── src/                     # Source code
+│   ├── components/          # React components
+│   ├── contexts/            # React contexts
+│   ├── services/            # API services
+│   ├── config/              # Configuration files
+│   ├── styles/              # CSS styles
+│   ├── types/               # TypeScript types
+│   ├── utils/               # Utility functions
+│   ├── constants.ts         # App constants
+│   ├── Studio.tsx           # Main app component
+│   └── ImageEditorModal.tsx # Image editor
+├── index.tsx                # App entry point
+├── index.html               # HTML template
+└── vite.config.ts           # Vite configuration
+```
 
 ## 🛠️ Tech Stack
 
