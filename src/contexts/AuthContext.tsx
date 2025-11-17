@@ -11,6 +11,7 @@ import {
   signInWithCredential,
   ConfirmationResult,
   signInWithPhoneNumber,
+  signInAnonymously,
   RecaptchaVerifier,
   onAuthStateChanged
 } from 'firebase/auth';
@@ -25,6 +26,7 @@ interface AuthContextType {
   signup: (email: string, password: string, username: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
+  loginAnonymously: () => Promise<void>;
   loginWithPhone: (phoneNumber: string, appVerifier: RecaptchaVerifier) => Promise<ConfirmationResult>;
   verifyPhoneCode: (confirmationResult: ConfirmationResult, code: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -136,6 +138,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const loginAnonymously = async () => {
+    const result = await signInAnonymously(auth);
+    const user = result.user;
+
+    const userDocRef = doc(db, 'users', user.uid);
+    const userDoc = await getDoc(userDocRef);
+
+    if (!userDoc.exists()) {
+      const guestName = `Guest-${user.uid.slice(0, 6)}`;
+      const newUserData = createDefaultUserData(user, guestName);
+      await setDoc(userDocRef, newUserData);
+      setUserData(newUserData);
+    }
+  };
+
   const loginWithPhone = async (phoneNumber: string, appVerifier: RecaptchaVerifier): Promise<ConfirmationResult> => {
     return await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
   };
@@ -182,6 +199,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     signup,
     login,
     loginWithGoogle,
+    loginAnonymously,
     loginWithPhone,
     verifyPhoneCode,
     logout,
