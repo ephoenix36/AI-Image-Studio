@@ -1,0 +1,28 @@
+{
+  "name": "@ai-image-studio/mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for AI Image Studio — image generation, analysis, transformation, and prompt engineering",
+  "type": "module",
+  "bin": {
+    "ai-image-studio-mcp": "./build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node build/index.js",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "@google/genai": "^1.28.0",
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "sharp": "^0.33.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.8.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["sharp", "protobufjs"]
+  }
+}

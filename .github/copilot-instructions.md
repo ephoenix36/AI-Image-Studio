@@ -3,36 +3,32 @@
 ## 🎯 Project Context
 
 ### What This Project Does
-AI Image Studio is a **powerful AI-powered image generation and management platform** that combines Google's Gemini AI with a sophisticated project organization system. Users can generate high-quality images from text prompts, manage reference materials, organize work into projects with folder structures, and sync everything to the cloud with Firebase authentication.
+AI Image Studio is a **powerful AI-powered image generation and management platform** that runs entirely in the browser. Users can generate high-quality images from text prompts using Google's Gemini and Imagen models, manage reference materials, organize work into projects with folder structures, and export everything as `.zip` files. No sign-up, no backend, no tracking.
 
 ### Core Technologies
-- **Frontend:** React 19, TypeScript 5.8, Vite 6.2
-- **AI Generation:** Google Gemini API (`@google/genai` 1.21.0)
-- **Authentication:** Firebase Authentication (Email/Password, Google OAuth, Phone/SMS)
-- **Database:** Cloud Firestore (user data, projects, assets)
+- **Frontend:** React 19, TypeScript 5.8, Vite 6
+- **AI Generation:** Google Gemini API (`@google/genai`)
+- **State Management:** `localStorage` via AppContext
 - **Build Tool:** Vite with React plugin
-- **Styling:** Inline styles with Tailwind-inspired utility patterns
-- **Phone Input:** react-phone-number-input 3.4.13
+- **Styling:** Tailwind CSS via CDN
 
 ### Architecture Overview
 ```
-┌──────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   React App      │────▶│  Firebase Auth   │────▶│  Firestore DB   │
-│   (Studio.tsx)   │◀────│  (AuthContext)   │◀────│  (User Data)    │
-└──────────────────┘     └──────────────────┘     └─────────────────┘
-        │                         
-        ├──────────────▶ Gemini API (Image Generation)
+┌──────────────────┐     ┌──────────────────┐
+│   React App      │────▶│  Google AI APIs   │
+│   (Studio.tsx)   │     │  (Gemini/Imagen)  │
+└──────────────────┘     └──────────────────┘
         │
-        └──────────────▶ Firebase Storage (Future: Cloud Images)
+        └──────────────▶ localStorage (User data, projects, prompts)
 ```
 
 **Application Flow:**
-1. User authenticates via Firebase (Email/Google/Phone)
-2. User data loads from Firestore (projects, prompts, assets)
-3. User creates/edits prompts with reference images and tags
-4. Gemini API generates images based on prompts
-5. Generated images stored locally (base64) and synced to Firestore
-6. Folder-based organization for both prompts and assets
+1. User enters their Google AI Studio API key (stored in `localStorage`)
+2. User creates/edits prompts with reference images and tags
+3. Google AI models generate images based on prompts
+4. Generated images exist in browser memory during the session
+5. Folder-based organization for both prompts and assets
+6. Full project export/import as `.aistudio.zip`
 
 ---
 
@@ -42,8 +38,8 @@ AI Image Studio is a **powerful AI-powered image generation and management platf
 
 **Naming Conventions:**
 - **Files:** `PascalCase.tsx` for components, `camelCase.ts` for utilities
-  - Examples: `Studio.tsx`, `AuthScreen.tsx`, `geminiService.ts`, `utils.ts`
-- **Components:** `PascalCase` (e.g., `ImageViewer`, `PromptCard`, `FolderTree`)
+  - Examples: `Studio.tsx`, `PromptCard.tsx`, `geminiService.ts`, `utils.ts`
+- **Components:** `PascalCase` (e.g., `ImageViewer`, `PromptCard`, `PhotoGallery`)
 - **Functions:** `camelCase` (e.g., `generateImage`, `blobToBase64`, `sanitizeFilename`)
 - **Constants:** `SCREAMING_SNAKE_CASE` or `PascalCase` for complex objects
   - Examples: `ASPECT_RATIOS`, `MEDIA_CATEGORIES`, `WIZARD_SYSTEM_PROMPT`
@@ -92,26 +88,6 @@ export function useUndoableState<T>(
   
   return [state.history[state.currentIndex], setState, undo, redo, canUndo, canRedo];
 }
-
-// ✅ Context for global state
-interface AuthContextType {
-  currentUser: FirebaseUser | null;
-  userData: User | null;
-  loading: boolean;
-  signup: (email: string, password: string, username: string) => Promise<void>;
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-}
-
-export const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
-  return context;
-};
 
 // ✅ TypeScript for all props and state
 interface LoadingState {
@@ -181,68 +157,6 @@ const getDisplay = () => {
   if (!data) return 'No data';
   return data.value;
 };
-```
-
-### Firebase & Cloud Firestore
-
-**Patterns We Use:**
-
-```typescript
-// ✅ Proper Firebase initialization
-import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  // ... other config
-};
-
-export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const googleProvider = new GoogleAuthProvider();
-
-// ✅ Firestore data operations
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
-
-// Save user data
-const userRef = doc(db, 'users', userId);
-await setDoc(userRef, userData, { merge: true });
-
-// Load user data
-const userDoc = await getDoc(userRef);
-if (userDoc.exists()) {
-  const data = userDoc.data() as User;
-}
-
-// Update specific fields
-await updateDoc(userRef, {
-  'projects': updatedProjects,
-  'activeProjectId': newProjectId
-});
-
-// ✅ Auth state management
-useEffect(() => {
-  const unsubscribe = onAuthStateChanged(auth, async (user) => {
-    setCurrentUser(user);
-    
-    if (user) {
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      if (userDoc.exists()) {
-        setUserData(userDoc.data() as User);
-      }
-    } else {
-      setUserData(null);
-    }
-    
-    setLoading(false);
-  });
-  
-  return unsubscribe;  // Cleanup subscription
-}, []);
 ```
 
 ---
@@ -1024,7 +938,7 @@ AI-Image-Studio/
 ├── utils.ts                       # Utility functions
 ├── vite-env.d.ts                  # Vite environment types
 ├── vite.config.ts                 # Vite build configuration
-└── yarn.lock                      # Dependency lock file
+└── pnpm-lock.yaml                 # Dependency lock file
 ```
 
 ---
@@ -1038,9 +952,7 @@ AI-Image-Studio/
 cd AI-Image-Studio
 
 # Install dependencies
-yarn install
-# or
-npm install
+pnpm install
 
 # Copy environment template
 cp .env.example .env
@@ -1049,9 +961,10 @@ cp .env.example .env
 # Edit .env with your Firebase credentials
 
 # Run development server
-yarn dev
-# or
-npm run dev
+pnpm dev
+
+# Build for verification
+pnpm build
 
 # App available at http://localhost:3000
 ```
@@ -1060,7 +973,7 @@ npm run dev
 
 ```powershell
 # Build to check for TypeScript errors
-yarn build
+pnpm build
 
 # Manual testing of affected features
 # See "Testing Considerations" section
@@ -1220,7 +1133,7 @@ Utility functions:
 **Common Issues:**
 - **Firebase Auth not working:** Check VITE_ prefix on environment variables
 - **Images not generating:** Verify GEMINI_API_KEY in .env
-- **Build errors:** Run `yarn install` to sync dependencies
+- **Build errors:** Run `pnpm install` to sync dependencies
 - **Data not syncing:** Check Firestore security rules
 - **Phone auth failing:** Enable phone auth in Firebase Console
 

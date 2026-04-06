@@ -3,7 +3,15 @@ import { GoogleGenAI, GenerateContentResponse, Modality, GenerateImagesResponse,
 import type { ReferenceImage } from '@/types/types';
 import { WIZARD_SYSTEM_PROMPT } from '../constants';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const API_KEY_STORAGE_KEY = 'aiImageStudio_apiKey';
+
+function getAI(): GoogleGenAI {
+  const key = localStorage.getItem(API_KEY_STORAGE_KEY) || '';
+  if (!key) {
+    throw new Error('No API key configured. Please add your Google AI Studio API key in Settings.');
+  }
+  return new GoogleGenAI({ apiKey: key });
+}
 
 async function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -31,22 +39,27 @@ export async function generateImage(
   prompt: string,
   referenceImages: ReferenceImage[],
   aspectRatio: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  model?: string,
+  resolution?: string
 ): Promise<{ imageUrl?: string; error?: string }> {
   try {
     if (signal.aborted) throw new DOMException('Aborted by user', 'AbortError');
+
+    const useImagen = model ? model.startsWith('imagen-') : false;
 
     if (referenceImages.length > 0) {
       const imageParts = referenceImages.map(img => ({
         inlineData: { data: img.base64, mimeType: img.mimeType },
       }));
 
-      const apiPromise = ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
+      const resHint = resolution && !useImagen ? ` Output resolution: ${resolution}x${resolution}px.` : '';
+      const apiPromise = getAI().models.generateContent({
+        model: model || 'gemini-3.1-flash-image-preview',
         contents: {
           parts: [
             ...imageParts,
-            { text: `Using the provided reference image(s) as strong inspiration, generate a new photorealistic image for this request: "${prompt}"` },
+            { text: `Using the provided reference image(s) as strong inspiration, generate a new photorealistic image for this request: "${prompt}"${resHint}` },
           ],
         },
         config: { responseModalities: [Modality.IMAGE, Modality.TEXT] }
@@ -65,21 +78,41 @@ export async function generateImage(
       return { error: 'Image-to-image generation did not return an image.' };
 
     } else {
-      const apiPromise = ai.models.generateImages({
-        model: 'imagen-4.0-generate-001',
-        prompt,
-        config: { 
-            numberOfImages: 1, 
-            aspectRatio: aspectRatio as "1:1" | "3:4" | "4:3" | "9:16" | "16:9" 
-        },
-      });
-      // Fix: Explicitly type the response to resolve property access errors.
-      const response: GenerateImagesResponse = await withAbort(apiPromise, signal);
+      if (useImagen) {
+        // Map resolution to Imagen's imageSize format: '1024' → '1K', '2048' → '2K'
+        const imagenSizeMap: Record<string, string> = { '1024': '1K', '2048': '2K' };
+        const imageSize = resolution ? imagenSizeMap[resolution] : undefined;
 
-      if (response.generatedImages && response.generatedImages.length > 0) {
-        return { imageUrl: `data:image/png;base64,${response.generatedImages[0].image.imageBytes}` };
+        const apiPromise = getAI().models.generateImages({
+          model: model || 'imagen-4.0-generate-001',
+          prompt,
+          config: { 
+              numberOfImages: 1, 
+              ...(aspectRatio ? { aspectRatio: aspectRatio as "1:1" | "3:4" | "4:3" | "9:16" | "16:9" } : {}),
+              ...(imageSize ? { imageSize } : {}),
+          },
+        });
+        const response: GenerateImagesResponse = await withAbort(apiPromise, signal);
+
+        if (response.generatedImages && response.generatedImages.length > 0) {
+          return { imageUrl: `data:image/png;base64,${response.generatedImages[0].image.imageBytes}` };
+        }
+        return { error: 'Text-to-image generation failed to produce an image.' };
+      } else {
+        const resHint = resolution ? ` Output resolution: ${resolution}x${resolution}px.` : '';
+        const apiPromise = getAI().models.generateContent({
+          model: model,
+          contents: { parts: [{ text: `${prompt}${resHint}` }] },
+          config: { responseModalities: [Modality.IMAGE, Modality.TEXT] }
+        });
+        const response: GenerateContentResponse = await withAbort(apiPromise, signal);
+        for (const part of response.candidates[0].content.parts) {
+          if (part.inlineData) {
+            return { imageUrl: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}` };
+          }
+        }
+        return { error: 'Text-to-image generation did not return an image.' };
       }
-      return { error: 'Text-to-image generation failed to produce an image.' };
     }
   } catch (error: any) {
     if (error.name === 'AbortError') throw error;
@@ -99,7 +132,7 @@ export async function magicEditImage(
         inlineData: { data: asset.base64, mimeType: asset.mimeType }
     }));
 
-    const response: GenerateContentResponse = await ai.models.generateContent({
+    const response: GenerateContentResponse = await getAI().models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
           parts: [
@@ -136,7 +169,7 @@ export async function generatePromptsWithAI(
     try {
         const fullWizardPrompt = `User Goal: ${userInput}\n\nContext: ${context || 'None'}\n\nNumber of prompts to generate: ${numPrompts}`;
         
-        const response: GenerateContentResponse = await ai.models.generateContent({
+        const response: GenerateContentResponse = await getAI().models.generateContent({
             model: "gemini-2.5-flash",
             contents: fullWizardPrompt,
             config: {
@@ -167,7 +200,7 @@ export async function detectObjectsInImage(
     mimeType: string,
 ): Promise<{ detections?: any[]; error?: string }> {
     try {
-        const response = await ai.models.generateContent({
+        const response = await getAI().models.generateContent({
             model: "gemini-2.5-flash",
             contents: {
                 parts: [
@@ -211,7 +244,7 @@ export async function extendImage(
     mimeType: string,
 ): Promise<{ imageUrl?: string; error?: string }> {
     try {
-        const response = await ai.models.generateContent({
+        const response = await getAI().models.generateContent({
             model: 'gemini-2.5-flash-image',
             contents: {
                 parts: [
@@ -239,14 +272,16 @@ export async function extendImage(
 export async function upscaleImage(
     base64Image: string,
     mimeType: string,
+    editModel?: string,
 ): Promise<{ imageUrl?: string; error?: string }> {
     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image',
+        const model = editModel || 'gemini-2.5-flash-image';
+        const response = await getAI().models.generateContent({
+            model,
             contents: {
                 parts: [
                     { inlineData: { data: base64Image, mimeType: mimeType } },
-                    { text: "Upscale this image to 4 times its original resolution. Add realistic details, textures, and clarity while preserving the original composition and style. The output should be a high-resolution, photorealistic version of the input." },
+                    { text: "Upscale this image to a significantly higher resolution. Add realistic details, textures, and clarity while preserving the original composition, colors, and style exactly. Pay close attention to edges and fine details. The output should be a high-resolution, photorealistic version of the input." },
                 ],
             },
             config: {

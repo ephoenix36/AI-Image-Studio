@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 
-import { tips, MEDIA_CATEGORIES, ICONS, DEFAULT_DESCRIPTIONS, ASPECT_RATIOS } from '@/constants';
+import { tips, MEDIA_CATEGORIES, ICONS, DEFAULT_DESCRIPTIONS, ASPECT_RATIOS, IMAGE_MODELS, DEFAULT_IMAGE_MODEL } from '@/constants';
 import type { GeneratedAsset, Tip, Notification, ReferenceImage, LoadingState, User, Project, MediaType, ReferenceAsset, CustomPrompt, Folder, CustomPromptHistory } from '@/types/types';
 
 import { Icon } from '@/components/Icon';
@@ -13,7 +13,6 @@ import { ImageViewer } from '@/components/ImageViewer';
 import { WizardModal } from '@/components/WizardModal';
 import { CoffeeModal } from '@/components/CoffeeModal';
 import { NotificationToast } from '@/components/NotificationToast';
-import { AuthScreen } from '@/components/AuthScreen';
 import { ImageEditorModal } from '@/ImageEditorModal';
 import { SettingsModal } from '@/components/SettingsModal';
 import { ReferenceAssetSelectorModal } from '@/components/ReferenceAssetSelectorModal';
@@ -21,7 +20,7 @@ import { FolderTree } from '@/components/FolderTree';
 import { AssetPreview } from '@/components/AssetPreview';
 import { BatchEditorModal } from '@/components/BatchEditorModal';
 
-import { useAuth } from '@/contexts/AuthContext';
+import { useApp } from '@/contexts/AppContext';
 import { generateImage } from '@/services/geminiService';
 import { blobToBase64, sanitizeFilename, textToBlob, getResolution, useUndoableState, useBodyScrollLock } from '@/utils/utils';
 
@@ -135,70 +134,27 @@ const RenameModal: React.FC<{
 
 // Main App Component
 export default function Studio() {
-    const { currentUser, userData, updateUserData, logout } = useAuth();
+    const { user: appUser, apiKey, isReady, setUser: setAppUser, setApiKey } = useApp();
     
     // Using a single state object for the entire user session
-    const [user, setUserWithHistory, undoUser, redoUser, canUndo, canRedo] = useUndoableState<User | null>(userData);
+    const [user, setUserWithHistory, undoUser, redoUser, canUndo, canRedo] = useUndoableState<User | null>(appUser);
     const setUser = (u: User | null | ((prev: User | null) => User | null), fromInitial = false) => {
         setUserWithHistory(u, fromInitial);
-        // Sync with Firestore when user data changes
+        // Sync with AppContext (which persists to localStorage)
         if (u && typeof u !== 'function') {
-            updateUserData(u);
+            setAppUser(u);
         }
     };
     
-    // Sync userData from auth context with local state
+    // Sync appUser from context with local state
     useEffect(() => {
-        if (userData && !user) {
-            setUser(userData, true);
-        } else if (currentUser && !userData && !user) {
-            // User is authenticated but no userData from Firestore
-            // Try to load from localStorage first
-            const localStorageKey = `aiImageStudio_${currentUser.uid}`;
-            const savedData = localStorage.getItem(localStorageKey);
-            
-            if (savedData) {
-                console.log('Loading user data from localStorage backup');
-                try {
-                    const parsedData = JSON.parse(savedData);
-                    setUser(parsedData, true);
-                    return;
-                } catch (e) {
-                    console.error('Failed to parse localStorage data:', e);
-                }
-            }
-            
-            // Create default data if nothing in localStorage
-            console.log('Creating default user data for authenticated user');
-            const firstProjectId = crypto.randomUUID();
-            const defaultPromptFolderId = crypto.randomUUID();
-            const defaultAssetFolderId = crypto.randomUUID();
-            
-            const defaultUser: User = {
-                username: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
-                projects: [
-                    {
-                        id: firstProjectId,
-                        name: 'My First Project',
-                        customPrompts: [],
-                        generatedAssets: [],
-                        referenceAssets: [],
-                        folders: [
-                            { id: defaultPromptFolderId, name: 'My Prompts', parentId: null, createdAt: Date.now(), type: 'prompt' },
-                            { id: defaultAssetFolderId, name: 'Home', parentId: null, createdAt: Date.now(), type: 'asset' },
-                        ],
-                        createdAt: Date.now(),
-                    }
-                ],
-                activeProjectId: firstProjectId,
-                activePromptFolderId: defaultPromptFolderId,
-                activeAssetFolderId: defaultAssetFolderId,
-            };
-            setUser(defaultUser, true);
+        if (appUser && !user) {
+            setUser(appUser, true);
         }
-    }, [userData, currentUser, user]);
+    }, [appUser]);
 
     // Local UI State
+    const [setupApiKeyInput, setSetupApiKeyInput] = useState('');
     const [subjectDescription, setSubjectDescription] = useState("a high-end, solar-powered watch with a leather strap");
     const [hasUserEditedDescription, setHasUserEditedDescription] = useState(false);
     
@@ -227,7 +183,7 @@ export default function Studio() {
     const lastPromptSelectedIndex = useRef<number | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [searchTerm, setSearchTerm] = useState("");
-    const [selectedMediaType, setSelectedMediaType] = useState<MediaType>("Custom");
+    const [selectedMediaType, setSelectedMediaType] = useState<MediaType>("Products");
 
     // Modal States
     const [renameTarget, setRenameTarget] = useState<{ type: 'project' | 'folder', id: string | null, name: string, folderType?: 'prompt' | 'asset', parentId?: string | null } | null>(null);
@@ -235,9 +191,14 @@ export default function Studio() {
     const [deleteAssetsTarget, setDeleteAssetsTarget] = useState<string[] | null>(null);
 
     // Settings state
-    const [defaultAspectRatio, setDefaultAspectRatio] = useState("1:1");
+    const [defaultAspectRatio, setDefaultAspectRatio] = useState("");
+    const [defaultResolution, setDefaultResolution] = useState(user?.defaultResolution || "");
+    const [splitNewLines, setSplitNewLines] = useState(true);
+    const [imageModel, setImageModel] = useState(user?.imageModel || DEFAULT_IMAGE_MODEL);
     const [devMode, setDevMode] = useState(false);
+    const [hiddenPresetIds, setHiddenPresetIds] = useState<Set<string>>(new Set());
     const [confirmOnDelete, setConfirmOnDelete] = useState(true);
+    const [sessionCost, setSessionCost] = useState(0);
 
     // Collapsible state
     const [isControlsCollapsed, setIsControlsCollapsed] = useState(false);
@@ -280,8 +241,8 @@ export default function Studio() {
 
     const filteredPromptCategories = useMemo(() => promptCategories.map(cat => ({
         ...cat,
-        prompts: cat.prompts.filter(p => p.toLowerCase().includes(searchTerm.toLowerCase()))
-    })).filter(cat => cat.prompts.length > 0), [promptCategories, searchTerm]);
+        prompts: cat.prompts.filter(p => p.toLowerCase().includes(searchTerm.toLowerCase()) && !hiddenPresetIds.has(p))
+    })).filter(cat => cat.prompts.length > 0), [promptCategories, searchTerm, hiddenPresetIds]);
 
     const allVisiblePromptIds = useMemo(() => {
         const customIds = filteredCustomPrompts.map(p => p.id);
@@ -289,7 +250,12 @@ export default function Studio() {
         return [...customIds, ...categoryIds];
     }, [filteredCustomPrompts, filteredPromptCategories]);
 
-    const promptsToAddCount = useMemo(() => newPrompt.split('\n').map(p => p.trim()).filter(p => p.length > 0).length, [newPrompt]);
+    const promptsToAddCount = useMemo(() => {
+        if (splitNewLines) {
+            return newPrompt.split('\n').map(p => p.trim()).filter(p => p.length > 0).length;
+        }
+        return newPrompt.trim().length > 0 ? 1 : 0;
+    }, [newPrompt, splitNewLines]);
 
     const selectedAssetsForBatchEdit = useMemo(() =>
         activeProject?.generatedAssets.filter(a => selectedImageIds.has(a.id)) || [],
@@ -308,122 +274,6 @@ export default function Studio() {
     useEffect(() => {
         lastPromptSelectedIndex.current = null;
     }, [allVisiblePromptIds]);
-
-
-    // Load user from localStorage on initial mount
-    useEffect(() => {
-        const activeUser = localStorage.getItem('aiImageStudioActiveUser');
-        if (activeUser) {
-            const users: User[] = JSON.parse(localStorage.getItem('aiImageStudioUsers') || '[]');
-            let currentUser = users.find(u => u.username === activeUser);
-            if (currentUser) {
-                // Data migration for folder separation
-                if (typeof (currentUser as any).activeFolderId !== 'undefined') {
-                    const migratedUser = { ...currentUser };
-                    migratedUser.projects = migratedUser.projects.map(p => {
-                        let hasAssetFolder = false;
-                        const migratedFolders = p.folders.map(f => {
-                            if (!f.type) {
-                                (f as Folder).type = 'prompt';
-                            }
-                            if (f.type === 'asset') hasAssetFolder = true;
-                            return f as Folder;
-                        });
-
-                        if (!hasAssetFolder) {
-                            migratedFolders.push({ id: crypto.randomUUID(), name: 'All Images', parentId: null, createdAt: Date.now(), type: 'asset' });
-                        }
-                        return { ...p, folders: migratedFolders };
-                    });
-
-                    const firstAssetFolder = migratedUser.projects.find(p => p.id === migratedUser.activeProjectId)?.folders.find(f => f.type === 'asset');
-
-                    (migratedUser as any).activePromptFolderId = (currentUser as any).activeFolderId;
-                    (migratedUser as any).activeAssetFolderId = firstAssetFolder?.id || null;
-                    delete (migratedUser as any).activeFolderId;
-
-                    currentUser = migratedUser;
-                }
-
-                // Data migration for CustomPrompt structure
-                currentUser.projects = currentUser.projects.map(p => ({
-                    ...p,
-                    customPrompts: p.customPrompts.map(prompt => {
-                        if (prompt && typeof (prompt as any).name === 'undefined') {
-                            const oldPrompt = prompt as any;
-                            const name = oldPrompt.text.split(',')[0].trim();
-                            return {
-                                ...oldPrompt,
-                                name: name.length > 50 ? name.substring(0, 50) + '...' : name,
-                                version: '1.0',
-                                tags: [],
-                                createdAt: oldPrompt.createdAt || Date.now()
-                            };
-                        }
-                        return prompt as CustomPrompt;
-                    })
-                }));
-                
-                // Ensure activeProjectId and folder IDs are valid
-                const projectExists = currentUser.projects.some(p => p.id === currentUser.activeProjectId);
-                if (!projectExists) currentUser.activeProjectId = currentUser.projects[0]?.id || null;
-
-                const activeProj = currentUser.projects.find(p => p.id === currentUser.activeProjectId);
-                const promptFolderExists = activeProj?.folders.some(f => f.type === 'prompt' && f.id === currentUser.activePromptFolderId);
-                if (!promptFolderExists) currentUser.activePromptFolderId = activeProj?.folders.find(f => f.type === 'prompt')?.id || null;
-
-                const assetFolderExists = activeProj?.folders.some(f => f.type === 'asset' && f.id === currentUser.activeAssetFolderId);
-                if (!assetFolderExists) currentUser.activeAssetFolderId = activeProj?.folders.find(f => f.type === 'asset')?.id || null;
-                
-                setUser(currentUser, true);
-            }
-        }
-    }, []);
-
-    // Persist user data to localStorage whenever it changes (backup for Firestore)
-    useEffect(() => {
-        if (user && currentUser) {
-            try {
-                const localStorageKey = `aiImageStudio_${currentUser.uid}`;
-                
-                // Create a lightweight version without generated images (they're too large for localStorage)
-                const lightweightUser = {
-                    ...user,
-                    projects: user.projects.map(p => ({
-                        ...p,
-                        generatedAssets: [], // Don't persist generated images - they exceed localStorage quota
-                        referenceAssets: p.referenceAssets // Reference assets are user-uploaded, keep them
-                    }))
-                };
-                
-                localStorage.setItem(localStorageKey, JSON.stringify(lightweightUser));
-                console.log('User data backed up to localStorage');
-            } catch (error) {
-                if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-                    console.error('localStorage quota exceeded. Clearing reference assets...');
-                    // Try to clear and save again without images
-                    try {
-                        const lightweightUser = {
-                            ...user,
-                            projects: user.projects.map(p => ({
-                                ...p,
-                                generatedAssets: [],
-                                referenceAssets: [] // Also clear reference assets if still too large
-                            }))
-                        };
-                        const localStorageKey = `aiImageStudio_${currentUser.uid}`;
-                        localStorage.setItem(localStorageKey, JSON.stringify(lightweightUser));
-                        addNotification('Storage limit reached. Images will not persist locally.', 'error');
-                    } catch (e) {
-                        console.error('Failed to save to localStorage even after clearing:', e);
-                        addNotification('Unable to save data locally. Use Firestore sync.', 'error');
-                    }
-                } else {
-                    console.error('Error saving to localStorage:', error);
-                }
-            }
-        }
-    }, [user, currentUser]);
     
     useEffect(() => {
         if (!hasUserEditedDescription) {
@@ -544,16 +394,25 @@ export default function Studio() {
                 referenceImages.push(...resolvedGenAssets as ReferenceImage[]);
             }
 
-            const aspectRatio = prompt?.aspectRatio || defaultAspectRatio;
+            const aspectRatio = prompt?.aspectRatio || defaultAspectRatio || '';
+            const resolution = prompt?.resolution || defaultResolution || undefined;
+            const promptWithRatio = aspectRatio ? `${finalPrompt} Aspect ratio: ${aspectRatio}.` : finalPrompt;
 
-            const result = await generateImage(finalPrompt, referenceImages, aspectRatio, controller.signal);
+            const result = await generateImage(promptWithRatio, referenceImages, aspectRatio, controller.signal, imageModel, resolution || undefined);
             if (result.imageUrl) {
-                const resolution = await getResolution(result.imageUrl);
+                const imageResolution = await getResolution(result.imageUrl);
+                // Track session cost
+                const modelDef = IMAGE_MODELS.find(m => m.id === imageModel);
+                if (modelDef) {
+                    const resKey = resolution || 'default';
+                    const cost = modelDef.costPerImage[resKey] ?? modelDef.costPerImage['default'] ?? modelDef.costPerImage['1024'] ?? Object.values(modelDef.costPerImage)[0] ?? 0;
+                    setSessionCost(prev => prev + cost);
+                }
                 const newAsset: GeneratedAsset = {
                     id: crypto.randomUUID(), imageUrl: result.imageUrl, prompt: finalPrompt,
                     subject: subjectDescription, name: sanitizeFilename(finalPrompt), promptId: promptId,
                     createdAt: Date.now(), aspectRatio: aspectRatio, tags: [],
-                    folderId: activeAssetFolderId, resolution, referenceAssetIds: promptRefIds,
+                    folderId: activeAssetFolderId, resolution: imageResolution, referenceAssetIds: promptRefIds,
                 };
                 // Use functional update to prevent race condition when multiple images generate simultaneously
                 updateActiveProject(p => {
@@ -576,13 +435,13 @@ export default function Studio() {
         } finally {
              setLoadingStates(prev => { const newStates = {...prev}; delete newStates[promptId]; return newStates; });
         }
-    }, [subjectDescription, activeProject, allPrompts, addNotification, activeAssetFolderId, defaultAspectRatio, updateActiveProject]);
+    }, [subjectDescription, activeProject, allPrompts, addNotification, activeAssetFolderId, defaultAspectRatio, defaultResolution, imageModel, updateActiveProject]);
     
     const handleSimulateImage = async (promptText: string, promptId: string) => {
         addNotification("Simulating image generation...", "info");
         const prompt = allPrompts.find(p => p.id === promptId);
         const finalPrompt = promptText.replace(/\[subject\]/g, subjectDescription);
-        const aspectRatio = prompt?.aspectRatio || defaultAspectRatio;
+        const aspectRatio = prompt?.aspectRatio || defaultAspectRatio || '1:1';
         const [w, h] = aspectRatio.split(':').map(Number);
         const ratio = w / h;
         const width = 512;
@@ -780,7 +639,15 @@ export default function Studio() {
         if(confirmOnDelete && !confirm('Are you sure you want to delete this reference asset?')){
             return;
         }
-        updateActiveProject(p => ({...p, referenceAssets: p.referenceAssets.filter(asset => asset.id !== assetId)}));
+        updateActiveProject(p => ({
+            ...p,
+            referenceAssets: p.referenceAssets.filter(asset => asset.id !== assetId),
+            // Cascade: remove deleted assetId from all prompt referenceAssetIds
+            customPrompts: p.customPrompts.map(prompt => ({
+                ...prompt,
+                referenceAssetIds: prompt.referenceAssetIds.filter(id => id !== assetId)
+            }))
+        }));
         addNotification("Reference asset deleted.", 'info');
         setLightboxConfig({ isOpen: false, asset: null, source: 'generated' });
     };
@@ -915,18 +782,11 @@ export default function Studio() {
     };
 
 
-    const handleLogout = async () => {
-        try {
-            await logout();
-            setUser(null, true);
-            setSubjectDescription("a high-end, solar-powered watch with a leather strap");
-            setHasUserEditedDescription(false);
-            setIsBatchMode(false); setSelectedPrompts([]); setLoadingStates({});
-            setCollapsedSections({ "Prompting Tips": true });
-            addNotification("You have been logged out.", "info");
-        } catch (error: any) {
-            addNotification(`Logout failed: ${error.message}`, "error");
-        }
+    const handleResetData = () => {
+        if (!confirm('Are you sure you want to reset all data? This cannot be undone.')) return;
+        localStorage.removeItem('aiImageStudio_user');
+        localStorage.removeItem('aiImageStudio_apiKey');
+        window.location.reload();
     };
 
     // Project CRUD
@@ -1442,15 +1302,71 @@ export default function Studio() {
         reader.readAsArrayBuffer(file);
     };
 
-    if (!currentUser || !user) {
-        return <AuthScreen />;
+    if (!isReady || !user) {
+        return (
+            <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+                <div className="text-center">
+                    <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">AI Image Studio</h1>
+                    <p className="text-slate-400 mt-2">Loading...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // API Key Setup Screen
+    if (!apiKey) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+                <div className="w-full max-w-lg">
+                    <div className="text-center mb-8">
+                        <h1 className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 mb-3">AI Image Studio</h1>
+                        <p className="text-slate-400 text-lg">Professional AI image generation in your browser</p>
+                    </div>
+                    <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 p-8 space-y-6">
+                        <div>
+                            <h2 className="text-xl font-semibold text-white mb-2">Get Started</h2>
+                            <p className="text-slate-400 text-sm">Enter your free Google AI Studio API key to start generating images. Your key is stored locally in your browser and never sent to any server except the Google AI API.</p>
+                        </div>
+                        <div className="space-y-3">
+                            <label className="text-sm font-medium text-slate-300 block">API Key</label>
+                            <input
+                                type="password"
+                                value={setupApiKeyInput}
+                                onChange={e => setSetupApiKeyInput(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter' && setupApiKeyInput.trim()) setApiKey(setupApiKeyInput.trim()); }}
+                                placeholder="Paste your Google AI Studio API key"
+                                className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 transition"
+                                autoFocus
+                            />
+                        </div>
+                        <button
+                            onClick={() => { if (setupApiKeyInput.trim()) setApiKey(setupApiKeyInput.trim()); }}
+                            disabled={!setupApiKeyInput.trim()}
+                            className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:from-slate-600 disabled:to-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition"
+                        >
+                            Start Creating
+                        </button>
+                        <div className="text-center">
+                            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300 text-sm transition">
+                                Get your free API key from Google AI Studio &rarr;
+                            </a>
+                        </div>
+                        <div className="bg-slate-900/60 rounded-lg p-4 border border-slate-700/50 text-xs text-slate-500 space-y-1">
+                            <p><strong className="text-slate-400">Privacy:</strong> Your API key stays in your browser's local storage.</p>
+                            <p><strong className="text-slate-400">No account needed:</strong> No sign-up, no email, no tracking.</p>
+                            <p><strong className="text-slate-400">Your data:</strong> All projects are saved locally. Export anytime as .zip files.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     const ControlsSection: React.FC<{title: string, children: React.ReactNode, defaultOpen?: boolean}> = ({ title, children, defaultOpen=true }) => (
-        <details className="border-t border-slate-700 pt-6 group/controls" open={defaultOpen}>
-            <summary className="list-none cursor-pointer font-medium text-slate-300 mb-2 flex justify-between items-center">
+        <details className="border-t border-slate-700/60 pt-5 group/controls" open={defaultOpen}>
+            <summary className="list-none cursor-pointer font-medium text-slate-300 mb-2 flex justify-between items-center hover:text-white transition-colors">
                 {title}
-                <Icon path={ICONS.CHEVRON_UP} className="w-5 h-5 text-slate-500 transition-transform group-open/controls:rotate-180" />
+                <Icon path={ICONS.CHEVRON_UP} className="w-4 h-4 text-slate-500 transition-transform group-open/controls:rotate-180" />
             </summary>
             <div className="pt-2">
                 {children}
@@ -1511,17 +1427,17 @@ export default function Studio() {
                 }
             `}</style>
             
-            <header className="sticky top-0 z-40 bg-slate-900/80 backdrop-blur-md border-b border-slate-700/50 flex-shrink-0">
+            <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-xl border-b border-slate-700/40 flex-shrink-0">
                 <div className="container mx-auto px-4 sm:px-6 md:px-8 py-3">
-                    <div className="flex flex-col xl:flex-row justify-between items-center gap-4">
-                        <div className="flex items-center gap-4 w-full xl:w-auto justify-between xl:justify-start">
-                            <h1 className="text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-tight">AI Image Studio</h1>
-                            <div className="flex items-center gap-2 p-1 bg-slate-800 rounded-full">
-                                <Tooltip text={`Undo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Z)`}><button onClick={undoUser} disabled={!canUndo} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.UNDO} /></button></Tooltip>
-                                <Tooltip text={`Redo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Y)`}><button onClick={redoUser} disabled={!canRedo} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.REDO} /></button></Tooltip>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-3 min-w-0">
+                            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 tracking-tight whitespace-nowrap">AI Image Studio</h1>
+                            <div className="flex items-center gap-1 p-1 bg-slate-800 rounded-full flex-shrink-0">
+                                <Tooltip text={`Undo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Z)`}><button onClick={undoUser} disabled={!canUndo} className="p-1.5 sm:p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.UNDO} /></button></Tooltip>
+                                <Tooltip text={`Redo (${navigator.platform.toUpperCase().includes('MAC') ? '⌘' : 'Ctrl'}+Y)`}><button onClick={redoUser} disabled={!canRedo} className="p-1.5 sm:p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.REDO} /></button></Tooltip>
                             </div>
                         </div>
-                            <div className="flex items-center gap-3 flex-wrap justify-center xl:justify-end w-full xl:w-auto">
+                        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
                             {isBatchMode && (anyLoading ? 
                                 <button onClick={handleStopAll} className="flex items-center justify-center gap-2 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-md transition text-base">
                                     <Icon path={ICONS.STOP}/>
@@ -1538,18 +1454,17 @@ export default function Studio() {
                                 </button>
                                 </>
                             )}
-                            <button onClick={() => setIsGalleryOpen(true)} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition">
+                            <button onClick={() => setIsGalleryOpen(true)} className="flex items-center justify-center gap-2 bg-slate-600 hover:bg-slate-500 text-white font-bold py-1.5 sm:py-2 px-3 sm:px-4 rounded-md transition">
                                 <Icon path={ICONS.GRID}/>
                                 <span className="hidden md:inline">Gallery</span> 
                                 <span>({activeProject?.generatedAssets.length || 0})</span>
                             </button>
-                            <button onClick={() => setIsCoffeeModalOpen(true)} className="flex items-center justify-center bg-yellow-500 hover:bg-yellow-400 text-black font-bold p-2 rounded-md transition" title="Buy me a coffee">
+                            <button onClick={() => setIsCoffeeModalOpen(true)} className="flex items-center justify-center bg-yellow-500 hover:bg-yellow-400 text-black font-bold p-1.5 sm:p-2 rounded-md transition" title="Buy me a coffee">
                                 <Icon path={ICONS.COFFEE} className="w-5 h-5" />
                             </button>
                             <span className="text-slate-400 hidden xl:block">|</span>
-                            <div className="text-sm text-slate-300 hidden xl:block">Welcome, <span className="font-bold text-white">{user.username}</span></div>
-                            <Tooltip text="Settings"><button onClick={() => setIsSettingsOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-full"><Icon path={ICONS.SETTINGS} /></button></Tooltip>
-                            <Tooltip text="Logout"><button onClick={handleLogout} className="p-2 text-slate-400 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-full"><Icon path={ICONS.LOGOUT} /></button></Tooltip>
+                            <div className="text-sm text-slate-300 hidden xl:block">Welcome!</div>
+                            <Tooltip text="Settings"><button onClick={() => setIsSettingsOpen(true)} className="p-1.5 sm:p-2 text-slate-400 hover:text-white bg-slate-700/60 hover:bg-slate-600/60 rounded-full"><Icon path={ICONS.SETTINGS} /></button></Tooltip>
                         </div>
                     </div>
                 </div>
@@ -1559,7 +1474,7 @@ export default function Studio() {
                 <NotificationToast notifications={notifications} onDismiss={(id) => setNotifications(prev => prev.filter(n => n.id !== id))} />
                 
                 <div className="flex flex-col lg:flex-row gap-8 lg:h-full overflow-hidden">
-                    <aside className="w-full lg:w-1/3 xl:w-1/4 bg-slate-800/50 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-700 flex flex-col overflow-hidden">
+                    <aside className="w-full lg:w-1/3 xl:w-1/4 bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-700/50 flex flex-col overflow-hidden">
                         <div className="lg:overflow-y-auto overflow-x-hidden custom-scroll">
                             <details className="p-6" open={!isControlsCollapsed} onToggle={(e) => setIsControlsCollapsed(!e.currentTarget.open)}>
                                 <summary className="list-none cursor-pointer flex justify-between items-center group">
@@ -1583,10 +1498,10 @@ export default function Studio() {
                                                 <button onClick={() => setRenameTarget({type: 'project', id: null, name: 'My New Project'})} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">New</button>
                                                 <button onClick={() => activeProject && setRenameTarget({ type: 'project', id: activeProject.id, name: activeProject.name })} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">Rename</button>
                                             </div>
-                                            <div className="flex items-center gap-1">
-                                                <Tooltip text="Import Project" position="top"><button onClick={handleImportClick} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                <Tooltip text="Export Project" position="top"><button onClick={handleExportProject} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                <Tooltip text="Delete Project" position="top"><button onClick={() => activeProject && setDeleteTarget({ type: 'project', id: activeProject.id, name: activeProject.name })} disabled={user.projects.length <= 1} className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
+                                            <div className="flex items-center gap-1.5">
+                                                <Tooltip text="Import Project" position="top"><button onClick={handleImportClick} className="p-1.5 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md transition"><Icon path={ICONS.DOWNLOAD} className="w-4 h-4" /></button></Tooltip>
+                                                <Tooltip text="Export Project" position="top"><button onClick={handleExportProject} className="p-1.5 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md transition"><Icon path={ICONS.UPLOAD} className="w-4 h-4" /></button></Tooltip>
+                                                <Tooltip text="Delete Project" position="top"><button onClick={() => activeProject && setDeleteTarget({ type: 'project', id: activeProject.id, name: activeProject.name })} disabled={user.projects.length <= 1} className="p-1.5 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"><Icon path={ICONS.TRASH} className="w-4 h-4" /></button></Tooltip>
                                             </div>
                                         </div>
                                     </ControlsSection>
@@ -1594,57 +1509,60 @@ export default function Studio() {
                                         <ControlsSection title="Image Folder" defaultOpen={true}>
                                         <label className="block text-sm font-medium text-slate-400 mb-1">Current Asset Folder</label>
                                         <select value={activeAssetFolderId || ''} onChange={e => updateUser(u => ({...u, activeAssetFolderId: e.target.value || null}))} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 mb-2">
-                                            <option value="">Main</option>
+                                            {assetFolders.length === 0 && <option value="">No folders</option>}
                                             {assetFolders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                         </select>
-                                        <div className="flex items-center justify-between">
+                                        <div className="flex items-center justify-between gap-2">
                                             <div className="flex items-center gap-2">
-                                                <button onClick={() => handleFolderAction('create', null, 'asset')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">New</button>
-                                                <button onClick={() => activeAssetFolderId && handleFolderAction('rename', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md disabled:opacity-50">Rename</button>
+                                                <button onClick={() => handleFolderAction('create', null, 'asset')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md transition">New</button>
+                                                <button onClick={() => activeAssetFolderId && handleFolderAction('rename', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md transition disabled:opacity-50">Rename</button>
                                             </div>
-                                            <div className="flex items-center gap-1">
-                                                <Tooltip text="Import Assets" position="top"><button onClick={() => document.getElementById('file-upload')?.click()} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activeAssetFolderId, 'asset')} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
-                                                <Tooltip text="Delete Folder" position="top"><button onClick={() => activeAssetFolderId && handleFolderAction('delete', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
+                                            <div className="flex items-center gap-2">
+                                                <Tooltip text="Import Assets" position="top"><button onClick={() => document.getElementById('file-upload')?.click()} className="p-1.5 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md transition"><Icon path={ICONS.DOWNLOAD} className="w-4 h-4" /></button></Tooltip>
+                                                <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activeAssetFolderId, 'asset')} className="p-1.5 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md transition"><Icon path={ICONS.UPLOAD} className="w-4 h-4" /></button></Tooltip>
+                                                <Tooltip text="Delete Folder" position="top"><button onClick={() => activeAssetFolderId && handleFolderAction('delete', activeAssetFolderId, 'asset')} disabled={!activeAssetFolderId} className="p-1.5 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md transition disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-4 h-4" /></button></Tooltip>
                                             </div>
+                                        </div>
+
+                                        <div className="mt-4 pt-4 border-t border-slate-700/60">
+                                            <label className="block text-sm font-medium text-slate-400 mb-2">Reference Assets</label>
+                                            <div className={`relative border-2 border-dashed rounded-xl p-3 text-center transition-all duration-200 ${isDraggingOver ? 'border-cyan-400 bg-cyan-900/20 scale-[1.01]' : 'border-slate-600 hover:border-slate-500'}`}
+                                                onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOver(true); }} onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOver(false); }} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }} onDrop={handleDrop}>
+                                                <Icon path={ICONS.DOWNLOAD} className="mx-auto h-7 w-7 text-slate-500" />
+                                                <p className="mt-1.5 text-xs text-slate-400"><label htmlFor="file-upload" className="font-medium text-cyan-400 hover:text-cyan-300 cursor-pointer transition">Upload</label> or drop files here</p>
+                                                <input id="file-upload" type="file" className="sr-only" onChange={handleFileSelect} multiple accept="image/*,text/plain,text/markdown,application/pdf"/>
+                                            </div>
+                                            <p className="text-xs text-slate-500 mt-2">Saved to the currently selected asset folder.</p>
+                                            {visibleReferenceAssets.length > 0 && (
+                                                <div className="mt-2 space-y-1 max-h-40 overflow-y-auto custom-scroll pr-1">
+                                                    {visibleReferenceAssets.map(asset => 
+                                                        <AssetPreview 
+                                                            key={asset.id} 
+                                                            asset={asset}
+                                                            onClick={(a) => {
+                                                                if (a.type === 'image') {
+                                                                    setLightboxConfig({isOpen: true, asset: a, source: 'reference'})
+                                                                } else {
+                                                                    addNotification("Document preview is not available in the lightbox.", "info");
+                                                                }
+                                                            }}
+                                                            onDelete={handleDeleteReferenceAsset}
+                                                            onRename={handleReferenceAssetUpdate}
+                                                        />
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     </ControlsSection>
 
-                                    <ControlsSection title="Subject & Assets" defaultOpen={true}>
+                                    <ControlsSection title="Presets" defaultOpen={true}>
                                         <label className="block text-sm font-medium text-slate-400 mb-1">Media Type</label>
                                         <select value={selectedMediaType} onChange={e => { setSelectedMediaType(e.target.value as MediaType); setHasUserEditedDescription(false); }} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 mb-4">
                                             {Object.keys(MEDIA_CATEGORIES).map(type => <option key={type} value={type}>{type}</option>)}
                                         </select>
 
                                         <label className="block text-sm font-medium text-slate-400 mb-1">Subject Description</label>
-                                        <textarea rows={3} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 custom-scroll mb-4" value={subjectDescription} onChange={(e) => handleSubjectChange(e.target.value)} onPaste={handleSubjectPaste} placeholder="e.g., a high-end, solar-powered watch" />
-
-                                        <label className="block text-sm font-medium text-slate-400 mb-1">Reference Assets (Drop files or click)</label>
-                                        <div className={`relative border-2 border-dashed rounded-lg p-2 text-center transition-colors ${isDraggingOver ? 'border-blue-400 bg-blue-900/20' : 'border-slate-600 hover:border-slate-500'}`}
-                                            onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOver(true); }} onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDraggingOver(false); }} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }} onDrop={handleDrop}>
-                                            <Icon path={ICONS.DOWNLOAD} className="mx-auto h-8 w-8 text-slate-400" />
-                                            <p className="mt-1 text-xs text-slate-300"><label htmlFor="file-upload" className="font-medium text-cyan-400 hover:text-cyan-300 cursor-pointer">Upload</label> or drop</p>
-                                            <input id="file-upload" type="file" className="sr-only" onChange={handleFileSelect} multiple accept="image/*,text/plain,text/markdown,application/pdf"/>
-                                        </div>
-                                        <p className="text-xs text-slate-500 mt-2">Assets are placed in the currently selected asset folder.</p>
-                                        <div className="mt-2 space-y-1 max-h-40 overflow-y-auto custom-scroll pr-1">
-                                            {visibleReferenceAssets.map(asset => 
-                                                <AssetPreview 
-                                                    key={asset.id} 
-                                                    asset={asset}
-                                                    onClick={(a) => {
-                                                        // Fix: Only open image viewer for image assets, not documents.
-                                                        if (a.type === 'image') {
-                                                            setLightboxConfig({isOpen: true, asset: a, source: 'reference'})
-                                                        } else {
-                                                            addNotification("Document preview is not available in the lightbox.", "info");
-                                                        }
-                                                    }}
-                                                    onDelete={handleDeleteReferenceAsset}
-                                                    onRename={handleReferenceAssetUpdate}
-                                                />
-                                            )}
-                                        </div>
+                                        <textarea rows={3} className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 custom-scroll" value={subjectDescription} onChange={(e) => handleSubjectChange(e.target.value)} onPaste={handleSubjectPaste} placeholder="e.g., a high-end, solar-powered watch" />
                                     </ControlsSection>
                                 </div>
                             </details>
@@ -1677,18 +1595,22 @@ export default function Studio() {
                                 </div>
                             </div>
                             
-                            <div className="bg-slate-800/50 backdrop-blur-md rounded-2xl shadow-lg border border-slate-700 p-4 mb-6">
+                            <div className="bg-slate-800/60 backdrop-blur-xl rounded-2xl shadow-lg border border-slate-700/50 p-4 mb-6">
                                 <label className="block text-sm font-medium text-slate-400 mb-1">Current Prompt Folder</label>
-                                <div className="flex gap-2">
-                                    <select value={activePromptFolderId || ''} onChange={e => updateUser(u => ({...u, activePromptFolderId: e.target.value || null}))} className="flex-1 bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2">
+                                <div className="flex flex-wrap gap-2 items-center">
+                                    <select value={activePromptFolderId || ''} onChange={e => updateUser(u => ({...u, activePromptFolderId: e.target.value || null}))} className="flex-1 min-w-0 bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2">
                                         <option value="">All Prompts</option>
                                         {promptFolders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                     </select>
-                                    <button onClick={() => handleFolderAction('create', null, 'prompt')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md">New</button>
-                                    <button onClick={() => activePromptFolderId && handleFolderAction('rename', activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-4 rounded-md disabled:opacity-50">Rename</button>
-                                    <Tooltip text="Import Prompts" position="top"><button onClick={handleImportClick} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-5 h-5" /></button></Tooltip>
-                                    <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="p-2 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.UPLOAD} className="w-5 h-5" /></button></Tooltip>
-                                    <Tooltip text="Delete Folder" position="top"><button onClick={() => activePromptFolderId && handleFolderAction('delete', activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="p-2 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-5 h-5" /></button></Tooltip>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => handleFolderAction('create', null, 'prompt')} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md">New</button>
+                                        <button onClick={() => activePromptFolderId && handleFolderAction('rename', activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="text-sm bg-slate-700 hover:bg-slate-600 py-1.5 px-3 rounded-md disabled:opacity-50">Rename</button>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Tooltip text="Import Prompts" position="top"><button onClick={handleImportClick} className="p-1.5 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md"><Icon path={ICONS.DOWNLOAD} className="w-4 h-4" /></button></Tooltip>
+                                        <Tooltip text="Export Folder" position="top"><button onClick={() => handleExportFolder(activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="p-1.5 text-slate-300 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.UPLOAD} className="w-4 h-4" /></button></Tooltip>
+                                        <Tooltip text="Delete Folder" position="top"><button onClick={() => activePromptFolderId && handleFolderAction('delete', activePromptFolderId, 'prompt')} disabled={!activePromptFolderId} className="p-1.5 text-red-400 hover:text-red-300 bg-slate-700 hover:bg-slate-600 rounded-md disabled:opacity-50"><Icon path={ICONS.TRASH} className="w-4 h-4" /></button></Tooltip>
+                                    </div>
                                 </div>
                             </div>
 
@@ -1718,13 +1640,13 @@ export default function Studio() {
                                     </div>
                                 </summary>
                                 <div className="mb-6">
-                                    <button onClick={() => setIsWizardOpen(true)} className="w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2.5 px-4 rounded-md transition mb-4">
+                                    <button onClick={() => setIsWizardOpen(true)} className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-semibold py-2.5 px-4 rounded-md transition mb-4">
                                         <Icon path={ICONS.WAND} className="w-5 h-5"/>
                                         <span className="hidden sm:inline">AI Prompt Wizard</span>
                                         <span className="sm:hidden">AI Wizard</span>
                                     </button>
-                                    <details className="group/add-manual bg-slate-800/50 rounded-md border border-slate-700">
-                                        <summary className="list-none cursor-pointer flex items-center justify-between p-3 font-medium">
+                                    <details className="group/add-manual bg-slate-800/50 rounded-xl border border-slate-700/80 overflow-hidden">
+                                        <summary className="list-none cursor-pointer flex items-center justify-between p-3 font-medium hover:bg-slate-700/30 transition-colors">
                                             <span>Add Prompts Manually</span>
                                             <Icon path={ICONS.CHEVRON_DOWN} className="w-5 h-5 transition-transform group-open/add-manual:rotate-180" />
                                         </summary>
@@ -1732,14 +1654,21 @@ export default function Studio() {
                                             <textarea 
                                                 value={newPrompt} 
                                                 onChange={e => setNewPrompt(e.target.value)} 
-                                                placeholder="Type or paste one or more prompts here, separated by new lines. Use [subject] as a placeholder." 
+                                                placeholder={splitNewLines ? "Type or paste prompts here, one per line. Use [subject] as a placeholder." : "Type or paste a single prompt here. Use [subject] as a placeholder."}
                                                 rows={4} 
-                                                className="w-full bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 custom-scroll"
+                                                className="w-full bg-slate-900/50 text-white rounded-lg border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2.5 custom-scroll text-sm"
                                             ></textarea>
+                                            <label className="flex items-center justify-between cursor-pointer group/toggle">
+                                                <span className="text-sm text-slate-300 group-hover/toggle:text-white transition-colors">New lines create separate prompts</span>
+                                                <div className="relative">
+                                                    <input type="checkbox" className="sr-only peer" checked={splitNewLines} onChange={(e) => setSplitNewLines(e.target.checked)} />
+                                                    <div className="w-9 h-5 bg-slate-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600"></div>
+                                                </div>
+                                            </label>
                                             <div className="flex items-center gap-2">
                                                 <select
                                                     id="add-mode-select"
-                                                    className="flex-1 bg-slate-900/50 text-white rounded-md border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 text-sm"
+                                                    className="flex-1 bg-slate-900/50 text-white rounded-lg border-slate-600 focus:ring-cyan-500 focus:border-cyan-500 transition p-2 text-sm"
                                                 >
                                                     <option value="add">Add to Current Folder</option>
                                                     <option value="replace">Replace Current Folder</option>
@@ -1749,7 +1678,9 @@ export default function Studio() {
                                                     onClick={() => { 
                                                         if(newPrompt.trim()) { 
                                                             const mode = (document.getElementById('add-mode-select') as HTMLSelectElement)?.value || 'add';
-                                                            const prompts = newPrompt.split('\n').map(p => p.trim()).filter(p => p.length > 0);
+                                                            const prompts = splitNewLines
+                                                                ? newPrompt.split('\n').map(p => p.trim()).filter(p => p.length > 0)
+                                                                : [newPrompt.trim()].filter(p => p.length > 0);
                                                             if (prompts.length === 0) return;
                                                             
                                                             if (mode === 'folder') {
@@ -1812,7 +1743,7 @@ export default function Studio() {
                                                         }
                                                     }} 
                                                     disabled={promptsToAddCount === 0}
-                                                    className="px-4 py-2 flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                                                    className="px-4 py-2 flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                                                 >
                                                     <Icon path={ICONS.PLUS}/> <span className="hidden sm:inline">Add</span> {promptsToAddCount > 0 ? promptsToAddCount : ''} <span className="hidden sm:inline">Prompt{promptsToAddCount !== 1 ? 's' : ''}</span>
                                                 </button>
@@ -1842,7 +1773,9 @@ export default function Studio() {
                                         onUpdateEditingPrompt={setEditingPrompt}
                                         isBatchMode={isBatchMode}
                                         onSetAspectRatio={(promptId, ratio) => updateActiveProject(proj => ({...proj, customPrompts: proj.customPrompts.map(prompt => prompt.id === promptId ? {...prompt, aspectRatio: ratio} : prompt)}))}
+                                        onSetResolution={(promptId, res) => updateActiveProject(proj => ({...proj, customPrompts: proj.customPrompts.map(prompt => prompt.id === promptId ? {...prompt, resolution: res} : prompt)}))}
                                         onAddReferenceClick={(promptId) => setIsReferenceSelectorOpen(promptId)}
+                                        modelSupportsResolution={IMAGE_MODELS.find(m => m.id === imageModel)?.supportsResolution ?? false}
                                     />)}
                                 </div>
                             </details>
@@ -1882,7 +1815,7 @@ export default function Studio() {
                                                 showPreviews={showAllPreviews}
                                                 onPreviewClick={(asset) => setLightboxConfig({isOpen: true, asset: asset, source: 'generated'})}
                                                 onStop={handleStopGeneration}
-                                                onDelete={() => addNotification("Cannot delete a default prompt.", "error")}
+                                                onDelete={(id) => setHiddenPresetIds(prev => { const next = new Set(prev); next.add(id); return next; })}
                                                 onStartEdit={setEditingPrompt}
                                                 onSaveEdit={handleSaveEditedPrompt}
                                                 onCancelEdit={() => setEditingPrompt(null)}
@@ -1898,7 +1831,9 @@ export default function Studio() {
                                                         setSelectedPrompts(s => s.map(id => id === promptId ? newCustomPrompt.id : id));
                                                     }
                                                 }}
+                                                onSetResolution={(promptId, res) => updateActiveProject(proj => ({...proj, customPrompts: proj.customPrompts.map(prompt => prompt.id === promptId ? {...prompt, resolution: res} : prompt)}))}
                                                 onAddReferenceClick={(promptId) => setIsReferenceSelectorOpen(promptId)}
+                                                modelSupportsResolution={IMAGE_MODELS.find(m => m.id === imageModel)?.supportsResolution ?? false}
                                             />
                                         })}
                                     </div>
@@ -1995,16 +1930,22 @@ export default function Studio() {
                 setShowAllPreviews={setShowAllPreviews}
                 defaultAspectRatio={defaultAspectRatio}
                 setDefaultAspectRatio={setDefaultAspectRatio}
+                defaultResolution={defaultResolution}
+                setDefaultResolution={(r) => { setDefaultResolution(r); updateUser(u => ({...u, defaultResolution: r})); }}
                 batchGenerationCount={batchGenerationCount}
                 setBatchGenerationCount={setBatchGenerationCount}
                 devMode={devMode}
                 setDevMode={setDevMode}
                 confirmOnDelete={confirmOnDelete}
                 setConfirmOnDelete={setConfirmOnDelete}
-                apiKey={user?.apiKey}
-                setApiKey={(key) => updateUser(u => ({...u, apiKey: key}))}
+                apiKey={apiKey}
+                setApiKey={setApiKey}
                 localStoragePath={user?.localStoragePath}
                 setLocalStoragePath={(path) => updateUser(u => ({...u, localStoragePath: path}))}
+                imageModel={imageModel}
+                setImageModel={(m) => { setImageModel(m); updateUser(u => ({...u, imageModel: m})); }}
+                sessionCost={sessionCost}
+                onResetSessionCost={() => setSessionCost(0)}
             />
 
             <ReferenceAssetSelectorModal

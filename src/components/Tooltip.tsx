@@ -22,9 +22,9 @@ export const Tooltip: React.FC<TooltipProps> = ({ text, children, position = 'le
     };
 
     return (
-      <div className="relative group flex items-center">
+            <div className="relative group/tooltip flex items-center z-[120]">
         {children}
-        <div className={`absolute w-max bg-slate-900 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-10 shadow-lg border border-slate-700 ${getPositionClasses()}`}>
+                <div className={`absolute w-max bg-slate-900 text-white text-xs rounded py-1 px-2 opacity-0 group-hover/tooltip:opacity-100 transition-opacity duration-300 pointer-events-none z-[130] shadow-lg border border-slate-700 ${getPositionClasses()}`}>
           {text}
         </div>
       </div>

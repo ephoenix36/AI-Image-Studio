@@ -44,18 +44,27 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
 
     const [canvasHistory, setCanvasHistory] = useState<ImageData[]>([]);
     const [historyIndex, setHistoryIndex] = useState(-1);
+    const canvasHistoryRef = useRef<ImageData[]>([]);
+    const historyIndexRef = useRef(-1);
 
     const [instructionAssets, setInstructionAssets] = useState<ReferenceAsset[]>([]);
 
     const [activeTool, setActiveTool] = useState<AdvancedTool>('none');
     
-    // Resolution tool state
-    const [newResolution, setNewResolution] = useState({ w: 0, h: 0});
+    // Resolution tool state (string-based to avoid cursor jump bug)
+    const [newResolutionStr, setNewResolutionStr] = useState({ w: '0', h: '0' });
     const [resizeMode, setResizeMode] = useState<ResizeMode>('fit');
     
     // Crop tool state
     const [cropRect, setCropRect] = useState({ x: 0, y: 0, width: 0, height: 0 });
     const [draggingHandle, setDraggingHandle] = useState<string | null>(null);
+
+    // Canvas zoom/pan state
+    const [canvasZoom, setCanvasZoom] = useState(1);
+    const [canvasPan, setCanvasPan] = useState({ x: 0, y: 0 });
+    const [isPanMode, setIsPanMode] = useState(false);
+    const [isCanvasDragging, setIsCanvasDragging] = useState(false);
+    const dragStartRef = useRef({ mouseX: 0, mouseY: 0, panX: 0, panY: 0 });
     
     const clearCanvas = useCallback(() => {
         const canvas = canvasRef.current;
@@ -64,6 +73,8 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
             if(ctx) {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 const clearedState = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                canvasHistoryRef.current = [clearedState];
+                historyIndexRef.current = 0;
                 setCanvasHistory([clearedState]);
                 setHistoryIndex(0);
             }
@@ -123,6 +134,9 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
         setEditPrompt("");
         setInstructionAssets([]);
         setActiveTool('none');
+        setCanvasZoom(1);
+        setCanvasPan({ x: 0, y: 0 });
+        setIsPanMode(false);
         clearCanvas();
         clearOverlay();
 
@@ -146,33 +160,38 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
 
     const restoreCanvasState = useCallback((index: number) => {
         const ctx = canvasRef.current?.getContext('2d');
-        if (ctx && canvasHistory.length > index && canvasHistory[index]) {
-            ctx.putImageData(canvasHistory[index], 0, 0);
+        const targetHistory = canvasHistoryRef.current;
+        if (ctx && targetHistory.length > index && targetHistory[index]) {
+            ctx.putImageData(targetHistory[index], 0, 0);
         }
-    }, [canvasHistory]);
+    }, []);
 
     const saveCanvasState = useCallback((ctx: CanvasRenderingContext2D) => {
-        const newHistory = canvasHistory.slice(0, historyIndex + 1);
+        const newHistory = canvasHistoryRef.current.slice(0, historyIndexRef.current + 1);
         newHistory.push(ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height));
+        canvasHistoryRef.current = newHistory;
+        historyIndexRef.current = newHistory.length - 1;
         setCanvasHistory(newHistory);
         setHistoryIndex(newHistory.length - 1);
-    }, [canvasHistory, historyIndex]);
+    }, []);
 
     const undoCanvas = useCallback(() => {
-        if (historyIndex > 0) {
-            const newIndex = historyIndex - 1;
+        if (historyIndexRef.current > 0) {
+            const newIndex = historyIndexRef.current - 1;
+            historyIndexRef.current = newIndex;
             setHistoryIndex(newIndex);
             restoreCanvasState(newIndex);
         }
-    }, [historyIndex, restoreCanvasState]);
+    }, [restoreCanvasState]);
 
     const redoCanvas = useCallback(() => {
-        if (historyIndex < canvasHistory.length - 1) {
-            const newIndex = historyIndex + 1;
+        if (historyIndexRef.current < canvasHistoryRef.current.length - 1) {
+            const newIndex = historyIndexRef.current + 1;
+            historyIndexRef.current = newIndex;
             setHistoryIndex(newIndex);
             restoreCanvasState(newIndex);
         }
-    }, [historyIndex, canvasHistory.length, restoreCanvasState]);
+    }, [restoreCanvasState]);
 
      useEffect(() => {
         if (!isOpen) return;
@@ -203,7 +222,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
 
 
     const startDrawing = ({ nativeEvent }: React.MouseEvent) => {
-        if (activeTool !== 'none') return;
+        if (activeTool !== 'none' || isPanMode) return;
         const { x, y } = getScaledCoords(nativeEvent);
         const ctx = canvasRef.current?.getContext('2d');
         if (!ctx) return;
@@ -218,14 +237,18 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
     };
     
     const draw = ({ nativeEvent }: React.MouseEvent) => {
-        if (!isDrawing || activeTool !== 'none') return;
+        if (!isDrawing || activeTool !== 'none' || isPanMode) return;
         const { x, y } = getScaledCoords(nativeEvent);
         const ctx = canvasRef.current?.getContext('2d');
         if (!ctx) return;
         
         if(drawMode !== 'pen') {
-            if (historyIndex > -1) restoreCanvasState(historyIndex);
+            if (historyIndexRef.current > -1) restoreCanvasState(historyIndexRef.current);
             ctx.beginPath();
+            ctx.strokeStyle = drawColor;
+            ctx.lineWidth = drawSize;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
         }
 
         switch(drawMode){
@@ -236,7 +259,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
     };
     
     const stopDrawing = () => {
-        if (activeTool !== 'none') return;
+        if (activeTool !== 'none' || isPanMode) return;
         const ctx = canvasRef.current?.getContext('2d');
         if (!ctx || !isDrawing) return;
         setIsDrawing(false);
@@ -322,7 +345,7 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
             const newTool = prev === tool ? 'none' : tool;
             clearOverlay();
             if(newTool === 'resolution' && imageRef.current){
-                setNewResolution({w: imageRef.current.naturalWidth, h: imageRef.current.naturalHeight});
+                setNewResolutionStr({w: String(imageRef.current.naturalWidth), h: String(imageRef.current.naturalHeight)});
             }
             if(newTool === 'crop' && imageRef.current){
                 setCropRect({ x: 0, y: 0, width: imageRef.current.naturalWidth, height: imageRef.current.naturalHeight });
@@ -396,27 +419,30 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
     const handleApplyResolution = () => {
         const img = imageRef.current;
         if(!img) return;
+        const w = Math.max(1, parseInt(newResolutionStr.w, 10) || 0);
+        const h = Math.max(1, parseInt(newResolutionStr.h, 10) || 0);
+        if (!w || !h) return addNotification("Invalid resolution dimensions.", 'error');
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = newResolution.w;
-        tempCanvas.height = newResolution.h;
+        tempCanvas.width = w;
+        tempCanvas.height = h;
         const ctx = tempCanvas.getContext('2d');
         if(!ctx) return;
         
         ctx.fillStyle = "rgba(0,0,0,0)";
         ctx.fillRect(0,0,tempCanvas.width, tempCanvas.height);
 
-        let dx = 0, dy = 0, dw = newResolution.w, dh = newResolution.h;
+        let dx = 0, dy = 0, dw = w, dh = h;
         if(resizeMode === 'fit' || resizeMode === 'crop'){
             const imgRatio = img.naturalWidth / img.naturalHeight;
-            const canvasRatio = newResolution.w / newResolution.h;
+            const canvasRatio = w / h;
             if((resizeMode === 'fit' && imgRatio > canvasRatio) || (resizeMode === 'crop' && imgRatio < canvasRatio)){
-                dw = newResolution.w;
+                dw = w;
                 dh = dw / imgRatio;
-                dy = (newResolution.h - dh) / 2;
+                dy = (h - dh) / 2;
             } else {
-                dh = newResolution.h;
+                dh = h;
                 dw = dh * imgRatio;
-                dx = (newResolution.w - dw) / 2;
+                dx = (w - dw) / 2;
             }
         }
         ctx.drawImage(img, dx, dy, dw, dh);
@@ -483,25 +509,87 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
     const handleUpscale = async () => {
         if(!currentAsset) return;
         setIsGenerating(true);
-        addNotification('Upscaling image (this may take a moment)...');
+        addNotification('Upscaling image... splitting into chunks for best quality.');
 
         if (devMode) {
             setTimeout(() => {
-                onSave(currentAsset, imageUrl, `${currentAsset.name}_upscaled(simulated)`);
-                addNotification("(Dev Mode) Upscale successful! Saving new version.", 'info');
+                onSave(currentAsset, imageUrl, `${editableName}_upscaled(sim)`);
+                addNotification("(Dev Mode) Upscale complete.", 'info');
                 setIsGenerating(false);
             }, 2000);
             return;
         }
 
-        const response = await fetch(imageUrl);
-        const blob = await response.blob();
-        const result = await upscaleImage(await blobToBase64(blob), blob.type);
-        if(result.imageUrl) {
-            onSave(currentAsset, result.imageUrl, `${editableName}_upscaled`);
-            addNotification("Upscale successful! Saving new version.", 'info'); 
-        } else {
-            addNotification(result.error || 'Upscaling failed.', 'error');
+        try {
+            const img = imageRef.current;
+            if (!img) throw new Error('Image not loaded');
+            const natW = img.naturalWidth;
+            const natH = img.naturalHeight;
+            // Decide whether to split into 2 or 4 chunks based on image size
+            const chunkCols = natW >= 512 ? 2 : 1;
+            const chunkRows = natH >= 512 ? 2 : 1;
+            const overlap = Math.min(32, Math.floor(natW / 8), Math.floor(natH / 8));
+            const chunkW = Math.ceil(natW / chunkCols);
+            const chunkH = Math.ceil(natH / chunkRows);
+
+            const chunks: { base64: string; mimeType: string; col: number; row: number }[] = [];
+            for (let row = 0; row < chunkRows; row++) {
+                for (let col = 0; col < chunkCols; col++) {
+                    const sx = Math.max(0, col * chunkW - overlap);
+                    const sy = Math.max(0, row * chunkH - overlap);
+                    const sw = Math.min(chunkW + overlap * 2, natW - sx);
+                    const sh = Math.min(chunkH + overlap * 2, natH - sy);
+                    const tmp = document.createElement('canvas');
+                    tmp.width = sw; tmp.height = sh;
+                    const ctx = tmp.getContext('2d');
+                    if (!ctx) continue;
+                    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+                    const dataUrl = tmp.toDataURL('image/png');
+                    const resp = await fetch(dataUrl);
+                    const blob = await resp.blob();
+                    chunks.push({ base64: await blobToBase64(blob), mimeType: 'image/png', col, row });
+                }
+            }
+
+            // Upscale each chunk with AI
+            const upscaledChunks: { dataUrl: string; col: number; row: number }[] = [];
+            for (const chunk of chunks) {
+                const result = await upscaleImage(chunk.base64, chunk.mimeType);
+                if (!result.imageUrl) throw new Error(result.error || 'Chunk upscale failed');
+                upscaledChunks.push({ dataUrl: result.imageUrl, col: chunk.col, row: chunk.row });
+            }
+
+            // Load all upscaled chunks and get their dimensions
+            const loadImg = (src: string) => new Promise<HTMLImageElement>((res, rej) => {
+                const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src;
+            });
+            const loadedChunks = await Promise.all(upscaledChunks.map(async c => ({ ...c, img: await loadImg(c.dataUrl) })));
+            const firstChunk = loadedChunks[0];
+            const scaleFactor = firstChunk.img.width / (chunkW + overlap * 2);
+            const outW = Math.round(natW * scaleFactor);
+            const outH = Math.round(natH * scaleFactor);
+            const outOverlap = Math.round(overlap * scaleFactor);
+
+            const out = document.createElement('canvas');
+            out.width = outW; out.height = outH;
+            const outCtx = out.getContext('2d');
+            if (!outCtx) throw new Error('Failed to create output canvas');
+
+            for (const { img: chunkImg, col, row } of loadedChunks) {
+                const destX = Math.round(col * chunkW * scaleFactor);
+                const destY = Math.round(row * chunkH * scaleFactor);
+                const srcX = col === 0 ? 0 : outOverlap;
+                const srcY = row === 0 ? 0 : outOverlap;
+                const drawW = col === chunkCols - 1 ? chunkImg.width - srcX : Math.round(chunkW * scaleFactor);
+                const drawH = row === chunkRows - 1 ? chunkImg.height - srcY : Math.round(chunkH * scaleFactor);
+                outCtx.drawImage(chunkImg, srcX, srcY, drawW, drawH, destX, destY, drawW, drawH);
+            }
+
+            const finalDataUrl = out.toDataURL('image/png');
+            onSave(currentAsset, finalDataUrl, `${editableName}_upscaled`);
+            addNotification(`Upscale complete! New size: ${outW}×${outH}`, 'info');
+        } catch (err: any) {
+            addNotification(err.message || 'Upscaling failed.', 'error');
         }
         setIsGenerating(false);
     }
@@ -556,26 +644,77 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
             setStartPoint({x, y});
         }
     };
+
+    // Document-level crop handle dragging (allows dragging beyond canvas bounds for extension)
+    useEffect(() => {
+        if (!draggingHandle || activeTool !== 'crop') return;
+
+        const handleMouseMove = (e: MouseEvent) => {
+            const { x, y } = getScaledCoords(e);
+            const dx = x - startPoint.x;
+            const dy = y - startPoint.y;
+            setCropRect(prev => {
+                let {x: ox, y: oy, width: ow, height: oh} = prev;
+                if(draggingHandle.includes('l')) { ox += dx; ow -= dx; }
+                if(draggingHandle.includes('r')) { ow += dx; }
+                if(draggingHandle.includes('t')) { oy += dy; oh -= dy; }
+                if(draggingHandle.includes('b')) { oh += dy; }
+                if(draggingHandle === 'move') { ox += dx; oy += dy; }
+                return {x: ox, y: oy, width: ow > 20 ? ow : 20, height: oh > 20 ? oh : 20};
+            });
+            setStartPoint({x, y});
+        };
+
+        const handleMouseUp = () => setDraggingHandle(null);
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [draggingHandle, startPoint, activeTool, getScaledCoords]);
     
     const handleCropMouseMove = ({ nativeEvent }: React.MouseEvent) => {
-        if (activeTool !== 'crop' || !draggingHandle) return;
+        // Handled by document-level listener when dragging; this is just for cursor adjustments
+        if (activeTool !== 'crop' || draggingHandle) return;
         const { x, y } = getScaledCoords(nativeEvent);
-        const dx = x - startPoint.x;
-        const dy = y - startPoint.y;
-
-        setCropRect(prev => {
-            let {x: ox, y: oy, width: ow, height: oh} = prev;
-            if(draggingHandle.includes('l')) { ox += dx; ow -= dx; }
-            if(draggingHandle.includes('r')) { ow += dx; }
-            if(draggingHandle.includes('t')) { oy += dy; oh -= dy; }
-            if(draggingHandle.includes('b')) { oh += dy; }
-            if(draggingHandle === 'move') { ox += dx; oy += dy; }
-            return {x: ox, y: oy, width: ow > 20 ? ow : 20, height: oh > 20 ? oh : 20};
-        });
-        setStartPoint({x,y});
+        const handle = getHandleAtPos(x, y);
+        const overlay = overlayCanvasRef.current;
+        if (overlay) {
+            overlay.style.cursor = handle ? (handle === 'move' ? 'move' : 'crosshair') : 'default';
+        }
     };
     
     const handleCropMouseUp = () => setDraggingHandle(null);
+
+    const getCropDisplacements = useCallback(() => {
+        const img = imageRef.current;
+        if (!img) return { top: 0, bottom: 0, left: 0, right: 0 };
+
+        return {
+            top: Math.round(-cropRect.y),
+            bottom: Math.round(cropRect.y + cropRect.height - img.naturalHeight),
+            left: Math.round(-cropRect.x),
+            right: Math.round(cropRect.x + cropRect.width - img.naturalWidth),
+        };
+    }, [cropRect]);
+
+    const setCropFromDisplacements = useCallback((partial: Partial<{ top: number; bottom: number; left: number; right: number }>) => {
+        const img = imageRef.current;
+        if (!img) return;
+
+        const current = { ...getCropDisplacements(), ...partial };
+        const nextWidth = Math.max(20, img.naturalWidth + current.left + current.right);
+        const nextHeight = Math.max(20, img.naturalHeight + current.top + current.bottom);
+
+        setCropRect({
+            x: -current.left,
+            y: -current.top,
+            width: nextWidth,
+            height: nextHeight,
+        });
+    }, [getCropDisplacements]);
     
     const cursorUrl = useMemo(() => {
         if (drawMode !== 'pen' || activeTool !== 'none') return 'crosshair';
@@ -587,12 +726,12 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
     if (!isOpen || !currentAsset) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-[70]">
-            <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 w-full max-w-6xl max-h-[90vh] flex flex-col relative">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-lg flex items-center justify-center p-4 z-[70]">
+            <div className="bg-slate-800/95 rounded-2xl shadow-2xl border border-slate-700/60 w-full max-w-6xl max-h-[90vh] flex flex-col relative backdrop-blur-xl">
                 {isGenerating && <LoadingAnimation />}
-                 <div className="p-4 border-b border-slate-700 flex justify-between items-center flex-shrink-0">
-                    <div className="flex items-center gap-3 text-xl font-semibold truncate">
-                        <Icon path={ICONS.SPARKLES}/>
+                 <div className="px-5 py-4 border-b border-slate-700/60 flex justify-between items-center flex-shrink-0">
+                    <div className="flex items-center gap-3 text-lg font-semibold truncate">
+                        <Icon path={ICONS.SPARKLES} className="w-5 h-5 text-cyan-400"/>
                          {isEditingName ? (
                             <input
                                 type="text"
@@ -610,111 +749,251 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
                     <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl">&times;</button>
                 </div>
                 <div className="flex-grow p-4 overflow-y-auto custom-scroll flex flex-col lg:flex-row gap-4 min-h-0">
-                    <div className="flex-1 flex flex-col items-center justify-center bg-slate-900/50 rounded-lg p-2 gap-4">
-                       <div className="relative">
-                           <img ref={imageRef} src={imageUrl} alt={currentAsset.name} className="max-w-full max-h-[55vh] object-contain rounded" style={{visibility: imageUrl ? 'visible' : 'hidden'}} />
-                           <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" style={{zIndex: 1}}/>
-                           <canvas ref={overlayCanvasRef} className="absolute top-0 left-0 w-full h-full" style={{zIndex: 2, cursor: cursorUrl}} onMouseDown={activeTool === 'crop' ? handleCropMouseDown : startDrawing} onMouseUp={activeTool === 'crop' ? handleCropMouseUp : stopDrawing} onMouseLeave={activeTool === 'crop' ? handleCropMouseUp : stopDrawing} onMouseMove={activeTool === 'crop' ? handleCropMouseMove : draw} />
-                       </div>
-                       {history.length > 1 && (
-                            <div className="w-full flex justify-center items-center gap-2 p-2">
-                                <p className="text-xs text-slate-400 flex-shrink-0">Version History:</p>
-                                <div className="flex gap-2 overflow-x-auto custom-scroll">
-                                    {history.map(h => <img key={h.id} src={'imageUrl' in h ? h.imageUrl : h.previewUrl} onClick={() => { if(!isGenerating) { setCurrentAsset(h); setEditableName(h.name); updateCanvasAndImage('imageUrl' in h ? h.imageUrl : h.previewUrl); } }} className={`w-14 h-14 object-cover rounded cursor-pointer ring-2 ${currentAsset.id === h.id ? 'ring-cyan-400' : 'ring-transparent hover:ring-slate-500'}`} alt={h.name}/> )}
-                                </div>
-                            </div>
-                       )}
-                    </div>
-                    <div className="lg:w-96 flex-shrink-0 space-y-4 flex flex-col">
-                        <div>
-                            <label className="font-bold text-lg mb-2 block">Edit Instructions</label>
-                            <textarea rows={3} value={editPrompt} onChange={e => setEditPrompt(e.target.value)} placeholder="e.g., add a small blue bird on its shoulder" className="w-full bg-slate-700 p-2 rounded text-sm custom-scroll" />
+                    {/* Left: Canvas area with zoom/pan */}
+                    <div 
+                        className="flex-1 flex flex-col bg-slate-900/50 rounded-lg p-2 min-h-0 overflow-hidden relative group/canvas"
+                        onWheel={e => {
+                            e.preventDefault();
+                            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const mouseX = e.clientX - (rect.left + rect.width / 2);
+                            const mouseY = e.clientY - (rect.top + rect.height / 2);
+                            setCanvasZoom(prev => {
+                                const newZoom = Math.max(0.5, Math.min(5, +(prev + delta).toFixed(2)));
+                                const factor = newZoom / prev;
+                                setCanvasPan(p => ({ x: mouseX + (p.x - mouseX) * factor, y: mouseY + (p.y - mouseY) * factor }));
+                                return newZoom;
+                            });
+                        }}
+                        onMouseDown={e => {
+                            if (isPanMode) {
+                                setIsCanvasDragging(true);
+                                dragStartRef.current = { mouseX: e.clientX, mouseY: e.clientY, panX: canvasPan.x, panY: canvasPan.y };
+                            }
+                        }}
+                        onMouseMove={e => {
+                            if (isCanvasDragging && isPanMode) {
+                                setCanvasPan({ x: dragStartRef.current.panX + (e.clientX - dragStartRef.current.mouseX), y: dragStartRef.current.panY + (e.clientY - dragStartRef.current.mouseY) });
+                            }
+                        }}
+                        onMouseUp={() => setIsCanvasDragging(false)}
+                        onMouseLeave={() => setIsCanvasDragging(false)}
+                        style={{ cursor: isPanMode ? (isCanvasDragging ? 'grabbing' : 'grab') : undefined }}
+                    >
+                        {/* Zoom Controls */}
+                        <div className="absolute top-2 left-2 z-10 flex items-center gap-1 bg-slate-800/90 backdrop-blur-sm rounded-lg p-1 opacity-0 group-hover/canvas:opacity-100 transition-opacity">
+                            <Tooltip text="Pan mode (drag to pan)"><button onClick={() => setIsPanMode(p => !p)} className={`w-7 h-7 flex items-center justify-center rounded text-sm transition ${isPanMode ? 'bg-cyan-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>✋</button></Tooltip>
+                            <button onClick={() => { const nz = Math.min(5, +(canvasZoom + 0.25).toFixed(2)); const f = nz/canvasZoom; setCanvasPan(p => ({x: p.x*f, y: p.y*f})); setCanvasZoom(nz); }} className="w-7 h-7 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 text-sm font-bold text-white">+</button>
+                            <span className="text-xs text-slate-400 w-9 text-center tabular-nums">{Math.round(canvasZoom*100)}%</span>
+                            <button onClick={() => { const nz = Math.max(0.5, +(canvasZoom - 0.25).toFixed(2)); const f = nz/canvasZoom; setCanvasPan(p => ({x: p.x*f, y: p.y*f})); setCanvasZoom(nz); }} className="w-7 h-7 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 text-sm font-bold text-white">−</button>
+                            <button onClick={() => { setCanvasZoom(1); setCanvasPan({x:0,y:0}); }} className="w-7 h-7 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 text-xs text-white">↺</button>
                         </div>
 
-                        <div className="bg-slate-900/50 rounded-lg p-3 space-y-2">
-                            <div className="flex gap-2overflow-x-auto">{instructionAssets.map(a => <div key={a.id} className="w-12 h-12 rounded bg-slate-700 flex-shrink-0 relative group/asset">
-                                {a.type === 'image' ? <img src={(a as any).previewUrl} className="w-full h-full object-cover rounded" alt={a.name}/> : <div className="text-xs p-1">{a.name}</div>}
-                                <button onClick={() => setInstructionAssets(ia => ia.filter(i => i.id !== a.id))} className="absolute -top-1 -right-1 bg-red-600 rounded-full w-4 h-4 text-white text-xs opacity-0 group-hover/asset:opacity-100">&times;</button>
-                                </div>)}
+                        <div className="flex-1 flex items-center justify-center overflow-hidden min-h-0 w-full">
+                            <div style={{ transform: `scale(${canvasZoom}) translate(${canvasPan.x / canvasZoom}px, ${canvasPan.y / canvasZoom}px)`, transformOrigin: 'center center', transition: isCanvasDragging ? 'none' : 'transform 0.05s ease-out' }}>
+                                <div className="relative">
+                                    <img 
+                                        ref={imageRef} 
+                                        src={imageUrl} 
+                                        alt={currentAsset.name} 
+                                        className="max-w-full max-h-[50vh] object-contain rounded" 
+                                        style={{visibility: imageUrl ? 'visible' : 'hidden'}}
+                                        onLoad={() => {
+                                            const img = imageRef.current;
+                                            if (!img) return;
+                                            const canvas = canvasRef.current;
+                                            const overlay = overlayCanvasRef.current;
+                                            if (canvas && overlay && (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight)) {
+                                                canvas.width = img.naturalWidth;
+                                                canvas.height = img.naturalHeight;
+                                                overlay.width = img.naturalWidth;
+                                                overlay.height = img.naturalHeight;
+                                                clearCanvas();
+                                                clearOverlay();
+                                            }
+                                        }}
+                                    />
+                                    <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full" style={{zIndex: 1, pointerEvents: 'none'}}/>
+                                    <canvas ref={overlayCanvasRef} className="absolute top-0 left-0 w-full h-full" style={{zIndex: 2, cursor: isPanMode ? 'inherit' : cursorUrl, pointerEvents: isPanMode ? 'none' : 'auto'}} onMouseDown={activeTool === 'crop' ? handleCropMouseDown : startDrawing} onMouseUp={activeTool === 'crop' ? handleCropMouseUp : stopDrawing} onMouseLeave={activeTool === 'crop' ? handleCropMouseUp : stopDrawing} onMouseMove={activeTool === 'crop' ? handleCropMouseMove : draw} />
+                                </div>
                             </div>
-                            <div className="p-2 border-2 border-dashed rounded-lg border-slate-600 hover:border-slate-500 text-center">
-                                <label htmlFor="asset-upload" className="font-medium text-cyan-400 hover:text-cyan-300 cursor-pointer text-sm">Click to upload assets</label>
+                        </div>
+
+                        {history.length > 1 && (
+                            <div className="flex-shrink-0 flex justify-center items-center gap-2 p-2 border-t border-slate-700/40 mt-2">
+                                <p className="text-xs text-slate-400 flex-shrink-0">History:</p>
+                                <div className="flex gap-2 overflow-x-auto custom-scroll">
+                                    {history.map(h => <img key={h.id} src={'imageUrl' in h ? h.imageUrl : h.previewUrl} onClick={() => { if(!isGenerating) { setCurrentAsset(h); setEditableName(h.name); updateCanvasAndImage('imageUrl' in h ? h.imageUrl : h.previewUrl); } }} className={`w-12 h-12 object-cover rounded cursor-pointer ring-2 ${currentAsset.id === h.id ? 'ring-cyan-400' : 'ring-transparent hover:ring-slate-500'}`} alt={h.name}/> )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right: Controls */}
+                    <div className="lg:w-96 flex-shrink-0 space-y-3 flex flex-col overflow-y-auto overflow-x-visible custom-scroll max-h-full">
+                        {/* Edit Instructions */}
+                        <div className="bg-slate-900/60 rounded-xl p-4 border border-slate-700/50">
+                            <label className="font-semibold text-base mb-2 block text-white">Edit Instructions</label>
+                            <textarea rows={3} value={editPrompt} onChange={e => setEditPrompt(e.target.value)} placeholder="e.g., add a small blue bird on its shoulder" className="w-full bg-slate-800/80 p-2.5 rounded-lg text-sm custom-scroll border border-slate-600/50 focus:ring-cyan-500 focus:border-cyan-500 transition placeholder:text-slate-500" />
+                        </div>
+
+                        {/* Instruction Assets */}
+                        <div className="bg-slate-900/60 rounded-xl p-4 border border-slate-700/50">
+                            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 block">Instruction Assets</label>
+                            {instructionAssets.length > 0 && (
+                                <div className="flex gap-2 overflow-x-auto mb-2 pb-1 custom-scroll">{instructionAssets.map(a => <div key={a.id} className="w-12 h-12 rounded-lg bg-slate-700/80 flex-shrink-0 relative group/asset overflow-hidden ring-1 ring-slate-600/50">
+                                    {a.type === 'image' ? <img src={(a as any).previewUrl} className="w-full h-full object-cover" alt={a.name}/> : <div className="text-[10px] p-1 text-slate-400 leading-tight">{a.name}</div>}
+                                    <button onClick={() => setInstructionAssets(ia => ia.filter(i => i.id !== a.id))} className="absolute -top-0.5 -right-0.5 bg-red-500 rounded-full w-4 h-4 text-white text-[10px] opacity-0 group-hover/asset:opacity-100 transition-opacity flex items-center justify-center">&times;</button>
+                                    </div>)}
+                                </div>
+                            )}
+                            <div className="border-2 border-dashed rounded-lg border-slate-600/60 hover:border-cyan-500/40 text-center py-2 transition-colors">
+                                <label htmlFor="asset-upload" className="font-medium text-cyan-400 hover:text-cyan-300 cursor-pointer text-xs transition-colors">+ Add reference images or docs</label>
                                 <input id="asset-upload" type="file" className="sr-only" onChange={handleFileSelect} multiple accept="image/*,text/plain"/>
                             </div>
                         </div>
 
-                        <details className="bg-slate-900/50 rounded-lg group" open>
-                           <summary className="p-3 cursor-pointer font-bold list-none flex justify-between items-center">
+                        {/* Markup Tools */}
+                        <details className="bg-slate-900/60 rounded-xl group border border-slate-700/50 overflow-visible relative z-20" open>
+                           <summary className="px-4 py-3 cursor-pointer font-semibold text-sm list-none flex justify-between items-center hover:bg-slate-800/40 transition-colors">
                                 <span>Markup Tools</span>
-                                <Icon path={ICONS.CHEVRON_UP} className="w-5 h-5 transition-transform group-open:rotate-180" />
+                                <Icon path={ICONS.CHEVRON_UP} className="w-4 h-4 text-slate-400 transition-transform group-open:rotate-180" />
                            </summary>
-                           <div className="space-y-3 p-3 border-t border-slate-700">
-                                <div className='flex items-center justify-start gap-2'>
-                                    <Tooltip text="Pen"><button onClick={() => setDrawMode('pen')} className={`p-2 rounded ${drawMode === 'pen' ? 'bg-cyan-600' : 'bg-slate-700'}`}><Icon path={ICONS.PEN} className="w-5 h-5"/></button></Tooltip>
-                                    <Tooltip text="Rectangle"><button onClick={() => setDrawMode('rect')} className={`p-2 rounded ${drawMode === 'rect' ? 'bg-cyan-600' : 'bg-slate-700'}`}><Icon path={ICONS.RECTANGLE} className="w-5 h-5"/></button></Tooltip>
-                                    <Tooltip text="Oval"><button onClick={() => setDrawMode('oval')} className={`p-2 rounded ${drawMode === 'oval' ? 'bg-cyan-600' : 'bg-slate-700'}`}><Icon path={ICONS.OVAL} className="w-5 h-5"/></button></Tooltip>
+                           <div className="space-y-3 px-4 pb-4 border-t border-slate-700/50 pt-3">
+                                <div className='flex items-center gap-1.5'>
+                                    <Tooltip text="Pen"><button onClick={() => setDrawMode('pen')} className={`p-2 rounded-lg transition-all ${drawMode === 'pen' ? 'bg-cyan-600 shadow-lg shadow-cyan-600/20' : 'bg-slate-700/80 hover:bg-slate-600'}`}><Icon path={ICONS.PEN} className="w-4 h-4"/></button></Tooltip>
+                                    <Tooltip text="Rectangle"><button onClick={() => setDrawMode('rect')} className={`p-2 rounded-lg transition-all ${drawMode === 'rect' ? 'bg-cyan-600 shadow-lg shadow-cyan-600/20' : 'bg-slate-700/80 hover:bg-slate-600'}`}><Icon path={ICONS.RECTANGLE} className="w-4 h-4"/></button></Tooltip>
+                                    <Tooltip text="Oval"><button onClick={() => setDrawMode('oval')} className={`p-2 rounded-lg transition-all ${drawMode === 'oval' ? 'bg-cyan-600 shadow-lg shadow-cyan-600/20' : 'bg-slate-700/80 hover:bg-slate-600'}`}><Icon path={ICONS.OVAL} className="w-4 h-4"/></button></Tooltip>
+                                    <div className="w-px h-6 bg-slate-600 mx-1"></div>
+                                    <label htmlFor="draw-color" className="sr-only">Color</label>
+                                    <input type="color" id="draw-color" value={drawColor} onChange={e => setDrawColor(e.target.value)} className="w-8 h-8 p-0 border-none rounded-lg bg-slate-700/80 cursor-pointer" title="Brush color"/>
                                 </div>
-                                <div className="flex items-center justify-start gap-3"><label htmlFor="draw-color" className="text-sm">Color</label><input type="color" id="draw-color" value={drawColor} onChange={e => setDrawColor(e.target.value)} className="w-8 h-8 p-0 border-none rounded bg-slate-700 cursor-pointer"/></div>
-                                <div className="flex items-center justify-start gap-3"><label htmlFor="draw-size" className="text-sm">Size</label><div className="w-8 h-8 flex items-center justify-center"><div style={{width: drawSize, height: drawSize, backgroundColor: drawColor, borderRadius: '50%'}}></div></div><input type="range" id="draw-size" min="1" max="50" value={drawSize} onChange={e => setDrawSize(parseInt(e.target.value, 10))} className="flex-1"/><span className="text-sm w-6 text-center">{drawSize}</span></div>
-                                <div className="flex items-center gap-2"><Tooltip text="Undo (Ctrl+Z)"><button onClick={undoCanvas} disabled={historyIndex <= 0} className="p-2 bg-slate-700 hover:bg-slate-600 rounded disabled:opacity-50"><Icon path={ICONS.UNDO}/></button></Tooltip><Tooltip text="Redo (Ctrl+Y)"><button onClick={redoCanvas} disabled={historyIndex >= canvasHistory.length - 1} className="p-2 bg-slate-700 hover:bg-slate-600 rounded disabled:opacity-50"><Icon path={ICONS.REDO}/></button></Tooltip><button onClick={clearCanvas} className="flex-1 bg-slate-600 hover:bg-slate-500 text-white font-bold py-1.5 px-3 rounded-md transition text-sm">Clear Markup</button></div>
-                            </div>
-                        </details>
-                        
-                        <details className="bg-slate-900/50 rounded-lg group">
-                            <summary className="p-3 cursor-pointer font-bold list-none flex justify-between items-center">
-                                <span>Image Details</span>
-                                <Icon path={ICONS.CHEVRON_UP} className="w-5 h-5 transition-transform group-open:rotate-180" />
-                            </summary>
-                            <div className="p-3 border-t border-slate-700 text-sm space-y-2 text-slate-300">
-                                <p><strong>Resolution:</strong> {imageRef.current ? `${imageRef.current.naturalWidth} x ${imageRef.current.naturalHeight}` : 'Loading...'}</p>
-                                {'prompt' in currentAsset && <p><strong>Prompt:</strong> <span className="text-slate-400 italic">{currentAsset.prompt}</span></p>}
-                                <p><strong>Created:</strong> {new Date(currentAsset.createdAt).toLocaleString()}</p>
+                                <div className="flex items-center gap-3">
+                                    <label htmlFor="draw-size" className="text-xs text-slate-400 w-8 flex-shrink-0">Size</label>
+                                    <div className="w-6 h-6 flex items-center justify-center flex-shrink-0"><div style={{width: Math.min(drawSize, 24), height: Math.min(drawSize, 24), backgroundColor: drawColor, borderRadius: '50%'}}></div></div>
+                                    <input type="range" id="draw-size" min="1" max="50" value={drawSize} onChange={e => setDrawSize(parseInt(e.target.value, 10))} className="flex-1 accent-cyan-500"/>
+                                    <span className="text-xs text-slate-400 w-6 text-right tabular-nums">{drawSize}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                    <Tooltip text="Undo (Ctrl+Z)"><button onClick={undoCanvas} disabled={historyIndex <= 0} className="p-2 bg-slate-700/80 hover:bg-slate-600 rounded-lg transition disabled:opacity-30"><Icon path={ICONS.UNDO} className="w-4 h-4"/></button></Tooltip>
+                                    <Tooltip text="Redo (Ctrl+Y)"><button onClick={redoCanvas} disabled={historyIndex >= canvasHistory.length - 1} className="p-2 bg-slate-700/80 hover:bg-slate-600 rounded-lg transition disabled:opacity-30"><Icon path={ICONS.REDO} className="w-4 h-4"/></button></Tooltip>
+                                    <button onClick={clearCanvas} className="flex-1 bg-slate-700/80 hover:bg-slate-600 text-white font-medium py-2 px-3 rounded-lg transition text-xs">Clear Markup</button>
+                                </div>
                             </div>
                         </details>
 
-                        <details className="bg-slate-900/50 rounded-lg group">
-                            <summary className="p-3 cursor-pointer font-bold list-none flex justify-between items-center">
+                        {/* Advanced Tools */}
+                        <details className="bg-slate-900/60 rounded-xl group border border-slate-700/50 overflow-visible relative z-10">
+                            <summary className="px-4 py-3 cursor-pointer font-semibold text-sm list-none flex justify-between items-center hover:bg-slate-800/40 transition-colors">
                                 <span>Advanced Tools</span>
-                                <Icon path={ICONS.CHEVRON_UP} className="w-5 h-5 transition-transform group-open:rotate-180" />
+                                <Icon path={ICONS.CHEVRON_UP} className="w-4 h-4 text-slate-400 transition-transform group-open:rotate-180" />
                             </summary>
-                            <div className="p-3 border-t border-slate-700 space-y-2">
-                                <button onClick={() => toggleAdvancedTool('detect')} className={`w-full text-left p-2 rounded ${activeTool === 'detect' ? 'bg-cyan-600' : 'bg-slate-700 hover:bg-slate-600'}`}>Object Detection</button>
-                                {activeTool === 'detect' && <div className="p-2 bg-slate-800 rounded"><button onClick={handleDetect} className="w-full bg-cyan-500 text-white text-sm py-1 rounded">Detect Objects</button></div>}
+                            <div className="px-4 pb-4 border-t border-slate-700/50 pt-3 space-y-2">
+                                <button onClick={() => toggleAdvancedTool('detect')} className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTool === 'detect' ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/20' : 'bg-slate-700/80 hover:bg-slate-600 text-slate-300'}`}>
+                                    Object Detection
+                                </button>
+                                {activeTool === 'detect' && <div className="p-3 bg-slate-800/80 rounded-lg border border-slate-600/30"><button onClick={handleDetect} disabled={isGenerating} className="w-full bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-white text-sm font-semibold py-2 rounded-lg transition disabled:opacity-50">Run Detection</button></div>}
 
-                                <button onClick={() => toggleAdvancedTool('resolution')} className={`w-full text-left p-2 rounded ${activeTool === 'resolution' ? 'bg-cyan-600' : 'bg-slate-700 hover:bg-slate-600'}`}>Edit Resolution</button>
-                                {activeTool === 'resolution' && <div className="p-2 bg-slate-800 rounded space-y-2 text-sm">
+                                <button onClick={() => toggleAdvancedTool('resolution')} className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTool === 'resolution' ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/20' : 'bg-slate-700/80 hover:bg-slate-600 text-slate-300'}`}>
+                                    Edit Resolution
+                                </button>
+                                {activeTool === 'resolution' && <div className="p-3 bg-slate-800/80 rounded-lg space-y-2.5 text-sm border border-slate-600/30">
                                     <div className="flex items-center gap-2">
-                                        <input type="number" value={newResolution.w} onChange={e=>setNewResolution(r=>({...r, w: +e.target.value}))} className="w-1/2 bg-slate-700 p-1 rounded" />
-                                        <span>x</span>
-                                        <input type="number" value={newResolution.h} onChange={e=>setNewResolution(r=>({...r, h: +e.target.value}))} className="w-1/2 bg-slate-700 p-1 rounded" />
+                                        <input type="text" inputMode="numeric" pattern="[0-9]*" value={newResolutionStr.w} onChange={e => setNewResolutionStr(r => ({...r, w: e.target.value.replace(/\D/g, '')}))} onFocus={e => e.target.select()} className="w-1/2 bg-slate-700/80 p-2 rounded-lg text-center border border-slate-600/50 focus:ring-cyan-500 focus:border-cyan-500" placeholder="Width" />
+                                        <span className="text-slate-500 text-xs">×</span>
+                                        <input type="text" inputMode="numeric" pattern="[0-9]*" value={newResolutionStr.h} onChange={e => setNewResolutionStr(r => ({...r, h: e.target.value.replace(/\D/g, '')}))} onFocus={e => e.target.select()} className="w-1/2 bg-slate-700/80 p-2 rounded-lg text-center border border-slate-600/50 focus:ring-cyan-500 focus:border-cyan-500" placeholder="Height" />
                                     </div>
                                     <div className="relative">
-                                        <select value={resizeMode} onChange={e=>setResizeMode(e.target.value as ResizeMode)} className="w-full bg-slate-700 p-2 rounded appearance-none pr-8">
+                                        <select value={resizeMode} onChange={e=>setResizeMode(e.target.value as ResizeMode)} className="w-full bg-slate-700/80 p-2 rounded-lg appearance-none pr-8 border border-slate-600/50">
                                             <option value="fit">Fit</option><option value="stretch">Stretch</option><option value="crop">Crop to Fill</option>
                                         </select>
-                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-300">
+                                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-400">
                                             <Icon path={ICONS.CHEVRON_DOWN} className="w-4 h-4" />
                                         </div>
                                     </div>
-                                    <button onClick={handleApplyResolution} className="w-full bg-cyan-500 text-white text-sm py-1 rounded">Apply Resolution</button>
+                                    <button onClick={handleApplyResolution} className="w-full bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-white text-sm font-semibold py-2 rounded-lg transition">Apply Resolution</button>
                                 </div>}
 
-                                <button onClick={() => toggleAdvancedTool('crop')} className={`w-full text-left p-2 rounded ${activeTool === 'crop' ? 'bg-cyan-600' : 'bg-slate-700 hover:bg-slate-600'}`}>Crop & Extend</button>
-                                {activeTool === 'crop' && <div className="p-2 bg-slate-800 rounded space-y-2 text-sm">
-                                    <p>Drag borders to crop or extend.</p>
-                                    <p className="text-xs text-slate-400">Current Size: {Math.round(cropRect.width)} x {Math.round(cropRect.height)}</p>
-                                    <button onClick={handleApplyCrop} className="w-full bg-cyan-500 text-white text-sm py-1 rounded">Apply</button>
+                                <button onClick={() => toggleAdvancedTool('crop')} className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${activeTool === 'crop' ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/20' : 'bg-slate-700/80 hover:bg-slate-600 text-slate-300'}`}>
+                                    Crop & Extend
+                                </button>
+                                {activeTool === 'crop' && <div className="p-3 bg-slate-800/80 rounded-lg space-y-2 text-sm border border-slate-600/30">
+                                    <p className="text-slate-400 text-xs">Drag handles to crop. Drag beyond the image edge to extend with AI outpainting.</p>
+                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                        <label className="flex flex-col gap-1 text-slate-400">
+                                            Top
+                                            <input
+                                                type="number"
+                                                value={getCropDisplacements().top}
+                                                onChange={(e) => setCropFromDisplacements({ top: Number(e.target.value) || 0 })}
+                                                className="bg-slate-700/80 p-2 rounded-lg border border-slate-600/50 text-white"
+                                            />
+                                        </label>
+                                        <label className="flex flex-col gap-1 text-slate-400">
+                                            Bottom
+                                            <input
+                                                type="number"
+                                                value={getCropDisplacements().bottom}
+                                                onChange={(e) => setCropFromDisplacements({ bottom: Number(e.target.value) || 0 })}
+                                                className="bg-slate-700/80 p-2 rounded-lg border border-slate-600/50 text-white"
+                                            />
+                                        </label>
+                                        <label className="flex flex-col gap-1 text-slate-400">
+                                            Left
+                                            <input
+                                                type="number"
+                                                value={getCropDisplacements().left}
+                                                onChange={(e) => setCropFromDisplacements({ left: Number(e.target.value) || 0 })}
+                                                className="bg-slate-700/80 p-2 rounded-lg border border-slate-600/50 text-white"
+                                            />
+                                        </label>
+                                        <label className="flex flex-col gap-1 text-slate-400">
+                                            Right
+                                            <input
+                                                type="number"
+                                                value={getCropDisplacements().right}
+                                                onChange={(e) => setCropFromDisplacements({ right: Number(e.target.value) || 0 })}
+                                                className="bg-slate-700/80 p-2 rounded-lg border border-slate-600/50 text-white"
+                                            />
+                                        </label>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500">Positive values extend outward. Negative values crop inward.</p>
+                                    <p className="text-xs text-slate-500 font-mono">Size: {Math.round(cropRect.width)} × {Math.round(cropRect.height)} {(cropRect.x < 0 || cropRect.y < 0 || (cropRect.x + cropRect.width) > (imageRef.current?.naturalWidth||0) || (cropRect.y + cropRect.height) > (imageRef.current?.naturalHeight||0)) && <span className="text-amber-400 ml-1">↔ Extend (AI)</span>}</p>
+                                    <button onClick={handleApplyCrop} disabled={isGenerating} className="w-full bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-white text-sm font-semibold py-2 rounded-lg transition disabled:opacity-50">Apply</button>
                                 </div>}
                                 
-                                <button onClick={handleUpscale} className="w-full text-left p-2 rounded bg-slate-700 hover:bg-slate-600">4x Upscale</button>
+                                <button onClick={handleUpscale} disabled={isGenerating} className="w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium bg-slate-700/80 hover:bg-slate-600 text-slate-300 transition-all disabled:opacity-50">
+                                    Upscale
+                                </button>
+                            </div>
+                        </details>
+
+                        {/* Image Details — below advanced tools */}
+                        <details className="bg-slate-900/60 rounded-xl group border border-slate-700/50 overflow-visible relative z-0">
+                            <summary className="px-4 py-3 cursor-pointer font-semibold text-sm list-none flex justify-between items-center hover:bg-slate-800/40 transition-colors">
+                                <span>Image Details</span>
+                                <Icon path={ICONS.CHEVRON_UP} className="w-4 h-4 text-slate-400 transition-transform group-open:rotate-180" />
+                            </summary>
+                            <div className="px-4 pb-4 border-t border-slate-700/50 pt-3 text-xs space-y-2 text-slate-400">
+                                <div className="flex justify-between items-center"><span className="text-slate-500 flex-shrink-0 mr-2">Resolution</span> <span className="text-white font-mono">{imageRef.current ? `${imageRef.current.naturalWidth} × ${imageRef.current.naturalHeight}` : '...'}</span></div>
+                                <div className="flex justify-between items-center"><span className="text-slate-500 flex-shrink-0 mr-2">Created</span> <span className="text-white">{new Date(currentAsset.createdAt).toLocaleDateString()}</span></div>
+                                {'prompt' in currentAsset && currentAsset.prompt && (
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-slate-500">Prompt</span>
+                                        <span className="text-slate-300 italic text-xs leading-relaxed select-text">{currentAsset.prompt}</span>
+                                    </div>
+                                )}
                             </div>
                         </details>
                         
-                        <div className="mt-auto pt-4 space-y-2">
-                            <button onClick={handleGenerate} disabled={isGenerating} className="w-full flex items-center justify-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2.5 px-3 rounded-md transition disabled:bg-slate-500"><Icon path={ICONS.SPARKLES} /> {isGenerating ? 'Generating...' : 'Generate AI Edit'}</button>
+                        {/* Action Buttons */}
+                        <div className="mt-auto pt-3 space-y-2 sticky bottom-0 bg-slate-800/95 pb-1">
+                            <button onClick={handleGenerate} disabled={isGenerating || !editPrompt.trim()} className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-lg shadow-cyan-600/20 hover:shadow-cyan-500/30 disabled:opacity-50 disabled:shadow-none disabled:from-slate-600 disabled:to-slate-600">
+                                <Icon path={ICONS.SPARKLES} className="w-5 h-5" /> {isGenerating ? 'Generating...' : 'Generate AI Edit'}
+                            </button>
                            <div className="flex gap-2">
-                               <button onClick={onClose} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-3 rounded-md transition text-sm">Cancel</button>
-                               <button onClick={handleSaveAsNew} className="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-3 rounded-md transition text-sm flex items-center justify-center gap-1.5"><Icon path={ICONS.DOWNLOAD} className="w-4 h-4" /> Save Current State</button>
+                               <button onClick={onClose} className="flex-1 bg-slate-700/80 hover:bg-slate-600 text-white font-semibold py-2.5 px-3 rounded-xl transition text-sm">Cancel</button>
+                               <button onClick={handleSaveAsNew} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 px-3 rounded-xl transition text-sm flex items-center justify-center gap-1.5"><Icon path={ICONS.DOWNLOAD} className="w-4 h-4" /> Save State</button>
                            </div>
                         </div>
                     </div>

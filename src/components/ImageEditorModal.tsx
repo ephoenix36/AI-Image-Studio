@@ -57,6 +57,16 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
     const [cropRect, setCropRect] = useState({ x: 0, y: 0, width: 0, height: 0 });
     const [draggingHandle, setDraggingHandle] = useState<string | null>(null);
     
+    // Zoom & Pan state for editor canvas
+    const [editorZoom, setEditorZoom] = useState(1);
+    const [editorPan, setEditorPan] = useState({ x: 0, y: 0 });
+    const [isEditorPanning, setIsEditorPanning] = useState(false);
+    const [editorPanStart, setEditorPanStart] = useState({ x: 0, y: 0 });
+    const editorContainerRef = useRef<HTMLDivElement>(null);
+    
+    // Edit model state
+    const [editModel, setEditModel] = useState('gemini-2.5-flash-image');
+    
     const clearCanvas = useCallback(() => {
         const canvas = canvasRef.current;
         if (canvas) {
@@ -123,6 +133,8 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
         setEditPrompt("");
         setInstructionAssets([]);
         setActiveTool('none');
+        setEditorZoom(1);
+        setEditorPan({ x: 0, y: 0 });
         clearCanvas();
         clearOverlay();
 
@@ -143,6 +155,45 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
         const scaleY = canvas.height / rect.height;
         return { x: (nativeEvent.clientX - rect.left) * scaleX, y: (nativeEvent.clientY - rect.top) * scaleY };
     };
+    
+    const handleEditorWheel = useCallback((e: React.WheelEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const container = editorContainerRef.current;
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        // Point in container space the cursor is at
+        const cx = e.clientX - rect.left;
+        const cy = e.clientY - rect.top;
+        const delta = e.deltaY > 0 ? -0.15 : 0.15;
+        const newZoom = Math.max(0.25, Math.min(8, editorZoom + delta));
+        // Adjust pan so zoom is centered on cursor position
+        const scale = newZoom / editorZoom;
+        setEditorPan(prev => ({
+            x: cx - scale * (cx - prev.x),
+            y: cy - scale * (cy - prev.y),
+        }));
+        setEditorZoom(newZoom);
+    }, [editorZoom]);
+    
+    const handleEditorMiddleDown = useCallback((e: React.MouseEvent) => {
+        // Middle-click or Alt+click to pan
+        if (e.button === 1 || (e.altKey && e.button === 0)) {
+            e.preventDefault();
+            setIsEditorPanning(true);
+            setEditorPanStart({ x: e.clientX - editorPan.x, y: e.clientY - editorPan.y });
+        }
+    }, [editorPan]);
+    
+    const handleEditorPanMove = useCallback((e: React.MouseEvent) => {
+        if (isEditorPanning) {
+            setEditorPan({ x: e.clientX - editorPanStart.x, y: e.clientY - editorPanStart.y });
+        }
+    }, [isEditorPanning, editorPanStart]);
+    
+    const handleEditorPanUp = useCallback(() => {
+        setIsEditorPanning(false);
+    }, []);
 
     const restoreCanvasState = useCallback((index: number) => {
         const ctx = canvasRef.current?.getContext('2d');
@@ -213,6 +264,12 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
         ctx.lineWidth = drawSize; 
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
+        // Save state before beginning the stroke so undo can restore to pre-stroke
+        const preStrokeState = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+        const newHist = canvasHistory.slice(0, historyIndex + 1);
+        newHist.push(preStrokeState);
+        setCanvasHistory(newHist);
+        setHistoryIndex(newHist.length - 1);
         ctx.beginPath(); 
         ctx.moveTo(x, y);
     };
@@ -428,33 +485,34 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
     const handleApplyCrop = async () => {
         const img = imageRef.current;
         if (!img) return;
-        const isExtending = cropRect.x < 0 || cropRect.y < 0 || (cropRect.x + cropRect.width) > img.naturalWidth || (cropRect.y + cropRect.height) > img.naturalHeight;
+        const imgW = img.naturalWidth;
+        const imgH = img.naturalHeight;
+        
+        // Determine if the crop extends beyond the original image bounds
+        const isExtending = cropRect.x < 0 || cropRect.y < 0 || 
+            (cropRect.x + cropRect.width) > imgW || (cropRect.y + cropRect.height) > imgH;
 
         if (isExtending) {
-             if (devMode) {
+            // Create a canvas with the new size, place the original image offset
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = Math.round(cropRect.width);
+            tempCanvas.height = Math.round(cropRect.height);
+            const ctx = tempCanvas.getContext('2d');
+            if (!ctx) return;
+            // Draw the original image at the correct offset
+            ctx.drawImage(img, -cropRect.x, -cropRect.y);
+            
+            if (devMode) {
                 addNotification('(Dev Mode) Simulating image extension.', 'info');
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = cropRect.width;
-                tempCanvas.height = cropRect.height;
-                const ctx = tempCanvas.getContext('2d');
-                if (!ctx) return;
-                ctx.drawImage(img, -cropRect.x, -cropRect.y);
-                const dataUrl = tempCanvas.toDataURL('image/png');
-                updateCanvasAndImage(dataUrl);
+                updateCanvasAndImage(tempCanvas.toDataURL('image/png'));
                 addNotification("Image extended (simulated).", 'info');
                 setActiveTool('none');
                 return;
             }
+            
             setIsGenerating(true);
             addNotification('Extending image with AI...');
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = cropRect.width;
-            tempCanvas.height = cropRect.height;
-            const ctx = tempCanvas.getContext('2d');
-            if(!ctx) return;
-            ctx.drawImage(img, -cropRect.x, -cropRect.y);
             const dataUrl = tempCanvas.toDataURL('image/png');
-
             const response = await fetch(dataUrl);
             const blob = await response.blob();
             const result = await extendImage(await blobToBase64(blob), blob.type);
@@ -466,11 +524,11 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
                 addNotification(result.error || 'Image extension failed.', 'error');
             }
             setIsGenerating(false);
-
-        } else { // Simple crop
+        } else {
+            // Pure crop — no AI needed, just clip the image
             const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = cropRect.width;
-            tempCanvas.height = cropRect.height;
+            tempCanvas.width = Math.round(cropRect.width);
+            tempCanvas.height = Math.round(cropRect.height);
             const ctx = tempCanvas.getContext('2d');
             if(!ctx) return;
             ctx.drawImage(img, cropRect.x, cropRect.y, cropRect.width, cropRect.height, 0, 0, cropRect.width, cropRect.height);
@@ -570,7 +628,10 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
             if(draggingHandle.includes('t')) { oy += dy; oh -= dy; }
             if(draggingHandle.includes('b')) { oh += dy; }
             if(draggingHandle === 'move') { ox += dx; oy += dy; }
-            return {x: ox, y: oy, width: ow > 20 ? ow : 20, height: oh > 20 ? oh : 20};
+            // Allow negative positions (extending beyond image), but enforce minimum dimensions
+            if (ow < 20) ow = 20;
+            if (oh < 20) oh = 20;
+            return {x: ox, y: oy, width: ow, height: oh};
         });
         setStartPoint({x,y});
     };
@@ -693,9 +754,9 @@ export const ImageEditorModal: React.FC<ImageEditorModalProps> = ({ isOpen, asse
                                 <button onClick={() => toggleAdvancedTool('resolution')} className={`w-full text-left p-2 rounded ${activeTool === 'resolution' ? 'bg-cyan-600' : 'bg-slate-700 hover:bg-slate-600'}`}>Edit Resolution</button>
                                 {activeTool === 'resolution' && <div className="p-2 bg-slate-800 rounded space-y-2 text-sm">
                                     <div className="flex items-center gap-2">
-                                        <input type="number" value={newResolution.w} onChange={e=>setNewResolution(r=>({...r, w: +e.target.value}))} className="w-1/2 bg-slate-700 p-1 rounded" />
+                                        <input type="text" inputMode="numeric" value={newResolution.w || ''} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ''); setNewResolution(r => ({...r, w: v ? parseInt(v, 10) : 0})); }} className="w-1/2 bg-slate-700 p-1 rounded" placeholder="Width" />
                                         <span>x</span>
-                                        <input type="number" value={newResolution.h} onChange={e=>setNewResolution(r=>({...r, h: +e.target.value}))} className="w-1/2 bg-slate-700 p-1 rounded" />
+                                        <input type="text" inputMode="numeric" value={newResolution.h || ''} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ''); setNewResolution(r => ({...r, h: v ? parseInt(v, 10) : 0})); }} className="w-1/2 bg-slate-700 p-1 rounded" placeholder="Height" />
                                     </div>
                                     <div className="relative">
                                         <select value={resizeMode} onChange={e=>setResizeMode(e.target.value as ResizeMode)} className="w-full bg-slate-700 p-2 rounded appearance-none pr-8">

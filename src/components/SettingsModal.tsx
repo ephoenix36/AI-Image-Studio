@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Icon } from '@/components/Icon';
-import { ICONS, ASPECT_RATIOS } from '@/constants';
+import { ICONS, ASPECT_RATIOS, IMAGE_MODELS, IMAGE_RESOLUTIONS } from '@/constants';
 import { useBodyScrollLock } from '@/utils/utils';
 
 interface SettingsModalProps {
@@ -13,6 +13,8 @@ interface SettingsModalProps {
     setShowAllPreviews: (value: boolean) => void;
     defaultAspectRatio: string;
     setDefaultAspectRatio: (value: string) => void;
+    defaultResolution: string;
+    setDefaultResolution: (value: string) => void;
     batchGenerationCount: number;
     setBatchGenerationCount: (value: number) => void;
     devMode: boolean;
@@ -23,23 +25,29 @@ interface SettingsModalProps {
     setApiKey: (value: string) => void;
     localStoragePath?: string;
     setLocalStoragePath: (value: string) => void;
+    imageModel: string;
+    setImageModel: (value: string) => void;
+    sessionCost: number;
+    onResetSessionCost: () => void;
 }
 
 const Toggle = ({ checked, onChange, label }: { checked: boolean, onChange: (val: boolean) => void, label: string }) => (
-    <label className="flex items-center justify-between cursor-pointer">
-        <span className="text-white">{label}</span>
+    <label className="flex items-center justify-between cursor-pointer group">
+        <span className="text-white group-hover:text-cyan-100 transition-colors">{label}</span>
         <div className="relative">
             <input type="checkbox" className="sr-only peer" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-            <div className="w-11 h-6 bg-slate-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+            <div className="w-11 h-6 bg-slate-600 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600 transition-colors"></div>
         </div>
     </label>
 );
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
     isOpen, onClose, isBatchMode, setIsBatchMode, showAllPreviews, setShowAllPreviews, 
-    defaultAspectRatio, setDefaultAspectRatio, batchGenerationCount, setBatchGenerationCount,
+    defaultAspectRatio, setDefaultAspectRatio, defaultResolution, setDefaultResolution,
+    batchGenerationCount, setBatchGenerationCount,
     devMode, setDevMode, confirmOnDelete, setConfirmOnDelete, apiKey, setApiKey,
-    localStoragePath, setLocalStoragePath
+    localStoragePath, setLocalStoragePath, imageModel, setImageModel,
+    sessionCost, onResetSessionCost
  }) => {
     useBodyScrollLock(isOpen);
     
@@ -81,11 +89,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 z-50" onClick={onClose}>
-            <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                <div className="p-4 border-b border-slate-700 flex justify-between items-center flex-shrink-0">
-                    <h2 className="text-xl font-semibold flex items-center gap-2"><Icon path={ICONS.SETTINGS}/> Settings</h2>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl">&times;</button>
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-lg flex items-center justify-center p-4 z-50" onClick={onClose}>
+            <div className="bg-slate-800/95 rounded-2xl shadow-2xl border border-slate-700/60 w-full max-w-2xl max-h-[85vh] flex flex-col backdrop-blur-xl" onClick={e => e.stopPropagation()}>
+                <div className="px-5 py-4 border-b border-slate-700/60 flex justify-between items-center flex-shrink-0">
+                    <h2 className="text-lg font-semibold flex items-center gap-2"><Icon path={ICONS.SETTINGS}/> Settings</h2>
+                    <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl transition">&times;</button>
                 </div>
                 <div className="p-6 space-y-6 overflow-y-auto custom-scroll flex-grow">
                     {/* API Key Section */}
@@ -196,6 +204,54 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     
                     <div className="space-y-4">
                         <h3 className="font-bold text-lg text-slate-300">Generation</h3>
+
+                        {/* Session Cost */}
+                        <div className="bg-slate-900/60 rounded-xl p-3 space-y-2 border border-slate-700/50">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-semibold text-slate-300">Estimated Session Cost</span>
+                                <button onClick={onResetSessionCost} className="text-xs text-slate-400 hover:text-white transition px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600">Reset</button>
+                            </div>
+                            <div className="text-2xl font-bold text-cyan-400">${sessionCost.toFixed(4)}</div>
+                            <p className="text-xs text-slate-500">Cumulative estimate based on selected model and resolution. Does not include input tokens.</p>
+                        </div>
+
+                        {/* Image Model */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <label className="text-white" htmlFor="image-model">Image Model</label>
+                                <select id="image-model" value={imageModel} onChange={e => setImageModel(e.target.value)} className="bg-slate-700 text-white rounded-md border-slate-600 text-sm p-1">
+                                    {IMAGE_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                </select>
+                            </div>
+                            {/* Per-model pricing table */}
+                            <div className="bg-slate-900/60 rounded-lg border border-slate-700/50 overflow-hidden text-xs">
+                                <table className="w-full">
+                                    <thead>
+                                        <tr className="border-b border-slate-700/50">
+                                            <th className="text-left p-2 text-slate-400 font-semibold">Model</th>
+                                            <th className="text-right p-2 text-slate-400 font-semibold">Cost / image</th>
+                                            <th className="text-right p-2 text-slate-400 font-semibold">Note</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {IMAGE_MODELS.map(m => {
+                                            const costs = Object.entries(m.costPerImage);
+                                            const costStr = m.supportsResolution && costs.some(([k]) => k !== 'default')
+                                                ? costs.filter(([k]) => k !== 'default').map(([k, v]) => `${k}px: $${v}`).join(' · ')
+                                                : `$${m.costPerImage.default ?? Object.values(m.costPerImage)[0]}`;
+                                            return (
+                                                <tr key={m.id} className={`border-b border-slate-700/30 last:border-0 ${m.id === imageModel ? 'bg-cyan-900/20' : ''}`}>
+                                                    <td className="p-2 text-slate-300">{m.name}</td>
+                                                    <td className="p-2 text-right text-slate-400 font-mono">{costStr}</td>
+                                                    <td className="p-2 text-right text-slate-500">{m.note ?? (m.supportsResolution ? 'res sel.' : 'fixed')}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                         <Toggle label="Batch Mode" checked={isBatchMode} onChange={setIsBatchMode} />
                         <div className={`flex items-center justify-between transition-opacity ${isBatchMode ? 'opacity-100' : 'opacity-50'}`}>
                             <label className="text-white" htmlFor="batch-count">Images per Prompt</label>
@@ -208,7 +264,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <div className="flex items-center justify-between">
                             <label className="text-white" htmlFor="aspect-ratio">Default Aspect Ratio</label>
                             <select id="aspect-ratio" value={defaultAspectRatio} onChange={e => setDefaultAspectRatio(e.target.value)} className="bg-slate-700 text-white rounded-md border-slate-600 text-sm p-1">
+                                <option value="">None</option>
                                 {ASPECT_RATIOS.map(r => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <label className="text-white" htmlFor="default-resolution">Default Resolution</label>
+                            <select id="default-resolution" value={defaultResolution} onChange={e => setDefaultResolution(e.target.value)} className="bg-slate-700 text-white rounded-md border-slate-600 text-sm p-1">
+                                <option value="">Model default</option>
+                                {IMAGE_RESOLUTIONS.map(r => <option key={r} value={r}>{r}px</option>)}
                             </select>
                         </div>
                     </div>
@@ -220,6 +284,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <h3 className="font-bold text-lg text-slate-300">Advanced</h3>
                          <Toggle label="Developer Mode" checked={devMode} onChange={setDevMode} />
                          {devMode && <p className="text-xs text-amber-400 bg-amber-900/30 p-2 rounded-md">Dev Mode enabled. Image generation will be simulated to save API costs.</p>}
+                    </div>
+                     <div className="space-y-4 border-t border-slate-700 pt-4">
+                        <h3 className="font-bold text-lg text-red-400">Danger Zone</h3>
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-white text-sm">Reset All Data</p>
+                                <p className="text-xs text-slate-500">Clear all projects, prompts, API key, and settings.</p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    if (confirm('Are you sure you want to reset ALL data? This cannot be undone.')) {
+                                        localStorage.removeItem('aiImageStudio_user');
+                                        localStorage.removeItem('aiImageStudio_apiKey');
+                                        window.location.reload();
+                                    }
+                                }}
+                                className="bg-red-600 hover:bg-red-500 text-white font-semibold px-4 py-2 rounded-md transition text-sm"
+                            >
+                                Reset
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

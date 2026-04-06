@@ -1,0 +1,6 @@
+node_modules/
+build/
+.env
+generated_images/
+test_output/
+mcp-test-output/

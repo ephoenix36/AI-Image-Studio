@@ -1,133 +1,147 @@
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+
+<img width="1200" height="675" alt="AI Image Studio Hero — A glowing browser canvas displaying an AI-generated coastal painting, surrounded by a golden neural network lattice in deep indigo space" src="docs/hero-banner.png" />
 
 # AI Image Studio
 
-A powerful AI-powered image generation studio with secure authentication and cloud synchronization.
+**The open-source AI image generation studio that runs entirely in your browser.**
 
-View your app in AI Studio: https://ai.studio/apps/drive/1yZSpYAhNYfo5zNnBfZE9nl407_yWCyU4
+No sign-up. No backend. No tracking. Just you, your API key, and unlimited creative power.
 
-## ✨ Features
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Try_It_Now-blue?style=for-the-badge&logo=github)](https://ephoenix36.github.io/AI-Image-Studio/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge)](CONTRIBUTING.md)
 
-- 🎨 **AI Image Generation** - Create stunning images with Google's Gemini AI
-- 🔐 **Secure Authentication** - Multiple sign-in options (Email, Google, Phone/SMS, Guest/Anonymous)
-- ☁️ **Cloud Sync** - Access your projects from any device
-- 📱 **Multi-device Support** - Works on desktop and mobile
-- 🎯 **Custom Prompts** - Save and organize your favorite prompts
-- 📁 **Project Management** - Organize your work into projects
-- 🖼️ **Reference Images** - Use reference images to guide generation
-- ⚡ **Batch Generation** - Generate multiple images at once
+[Try it live](https://ephoenix36.github.io/AI-Image-Studio/) · [Report Bug](https://github.com/ephoenix36/AI-Image-Studio/issues) · [Request Feature](https://github.com/ephoenix36/AI-Image-Studio/issues)
 
-## 🚀 Quick Start
+</div>
 
-**Prerequisites:**  Node.js 18+ and pnpm
+---
 
-### 1. Install dependencies
+## Why AI Image Studio?
+
+Most AI image tools either cost $20+/month, lock you into a platform, or require running heavy local infrastructure. AI Image Studio takes a different approach:
+
+- **Bring Your Own Key** — Use Google's free tier (generous daily limits) or pay only for what you generate
+- **Zero Infrastructure** — Static site deployed to GitHub Pages. No server, no database, no Docker
+- **Privacy First** — Your API key and all project data stay in your browser's local storage. Nothing is ever sent to our servers (we don't have any)
+- **Full Featured** — Not a toy. Multi-project workspaces, batch generation, prompt versioning, image editing, reference images, export/import, and more
+
+## Features
+
+| Feature | Description |
+|---|---|
+| **Multi-Model Support** | Gemini 3.1 Flash, Gemini 2.5 Flash, Gemini 3 Pro, Imagen 4 (Standard/Fast/Ultra) |
+| **Batch Generation** | Select multiple prompts and generate all at once with configurable counts |
+| **Prompt Studio** | Create, version, tag, and organize custom prompts with folder hierarchies |
+| **Reference Images** | Upload or paste reference images to guide generation style and content |
+| **Magic Edit** | In-browser image editing with AI-powered inpainting and markup tools |
+| **Object Detection** | AI-powered bounding box detection for any image |
+| **Project System** | Multiple projects with separate prompt libraries, folders, and assets |
+| **Export/Import** | Full project export as `.aistudio.zip` — prompts, images, and metadata |
+| **Undo/Redo** | Full operation history with keyboard shortcuts (Ctrl+Z / Ctrl+Y) |
+| **Session Cost Tracking** | Real-time estimate of API spend per session with per-model pricing |
+| **AI Prompt Wizard** | Let AI generate optimized prompts based on your creative goals |
+| **Responsive** | Works on desktop, tablet, and mobile |
+
+## Quick Start
+
+### Option 1: Use the hosted version (recommended)
+
+1. Open **[ephoenix36.github.io/AI-Image-Studio](https://ephoenix36.github.io/AI-Image-Studio/)**
+2. Paste your [free Google AI Studio API key](https://aistudio.google.com/app/apikey)
+3. Start generating
+
+### Option 2: Run locally
+
 ```bash
+git clone https://github.com/ephoenix36/AI-Image-Studio.git
+cd AI-Image-Studio
 pnpm install
-```
-
-### 2. Set up Firebase Authentication
-See [FIREBASE_SETUP.md](./FIREBASE_SETUP.md) for detailed instructions.
-
-Quick setup:
-```bash
-# Copy environment template
-cp .env.example .env
-
-# Run the setup script (PowerShell)
-.\setup-firebase.ps1
-
-# Or manually edit .env with your Firebase credentials
-```
-
-### 3. Configure your API keys
-Add your API keys to `.env`:
-- `GEMINI_API_KEY` - Your Gemini API key
-- Firebase configuration values (from Firebase Console)
-
-### 4. Run the app
-```bash
 pnpm dev
 ```
 
-The app will be available at `http://localhost:3000`
+Open `http://localhost:3000` — enter your API key in the setup screen.
 
-## 🔐 Authentication
+### Option 3: Fork & deploy your own
 
-AI Image Studio now supports multiple authentication methods:
+1. Fork this repo
+2. Enable GitHub Pages (Settings → Pages → Source: GitHub Actions)
+3. Push to `main` — the included workflow deploys automatically
 
-- **Email/Password** - Traditional email and password sign-in with verification
-- **Google Sign-In** - One-click authentication with your Google account  
-- **Phone/SMS** - Sign in with your phone number and verification code
-- **Guest (Anonymous)** - Continue without an account; upgrade to a full account later
+No environment variables needed. No secrets to configure.
 
-For more details, see [AUTH_README.md](./AUTH_README.md)
+## Supported Models & Pricing
 
-## 📚 Documentation
+All pricing below is Google's per-image cost. AI Image Studio has **zero markup**.
 
-- [Firebase Setup Guide](./docs/FIREBASE_SETUP.md) - How to set up Firebase for authentication
-- [Authentication Documentation](./docs/AUTH_README.md) - Detailed auth features and usage
-- [Migration Guide](./docs/MIGRATION_GUIDE.md) - Migrating from the old localStorage system
-- [Implementation Summary](./docs/IMPLEMENTATION_SUMMARY.md) - Technical implementation details
+| Model | Type | Resolution | Cost/Image |
+|---|---|---|---|
+| Gemini 3.1 Flash Image | Multimodal | 512–4096px | $0.045 – $0.151 |
+| Gemini 2.5 Flash Image | Multimodal | ≤1024px | $0.039 |
+| Gemini 3 Pro Image | Multimodal | 1024–4096px | $0.134 – $0.24 |
+| Imagen 4 Standard | Text-to-Image | 1K–2K | $0.04 – $0.08 |
+| Imagen 4 Fast | Text-to-Image | 1K–2K | $0.02 – $0.04 |
+| Imagen 4 Ultra | Text-to-Image | 1K–2K | $0.06 – $0.12 |
 
-## 📁 Project Structure
+> Google's free tier includes generous daily API limits — enough for casual use at zero cost.
+
+## Architecture
 
 ```
 AI-Image-Studio/
-├── docs/                    # Documentation files
-├── src/                     # Source code
-│   ├── components/          # React components
-│   ├── contexts/            # React contexts
-│   ├── services/            # API services
-│   ├── config/              # Configuration files
-│   ├── styles/              # CSS styles
-│   ├── types/               # TypeScript types
-│   ├── utils/               # Utility functions
-│   ├── constants.ts         # App constants
-│   ├── Studio.tsx           # Main app component
-│   └── ImageEditorModal.tsx # Image editor
-├── index.tsx                # App entry point
-├── index.html               # HTML template
-└── vite.config.ts           # Vite configuration
+├── src/
+│   ├── components/       # UI components (modals, gallery, editor, etc.)
+│   ├── contexts/         # AppContext — localStorage-based state management
+│   ├── services/         # Google AI SDK integration
+│   ├── types/            # TypeScript interfaces
+│   ├── utils/            # Utilities (undo/redo, file helpers)
+│   ├── constants.ts      # Models, prompt presets, icons
+│   └── Studio.tsx        # Main application component
+├── index.tsx             # Entry point
+├── index.html            # HTML shell with importmap
+└── vite.config.ts        # Build config with GitHub Pages base path
 ```
 
-## 🛠️ Tech Stack
+**Zero backend dependencies.** The app is a static SPA that talks directly to Google's AI APIs from the browser using the official `@google/genai` SDK.
 
-- **Frontend**: React 19, TypeScript, Vite
-- **Authentication**: Firebase Authentication
-- **Database**: Cloud Firestore
-- **AI**: Google Gemini API
-- **Styling**: Tailwind CSS (via inline styles)
-- **Phone Input**: react-phone-number-input
+## Tech Stack
 
-## 🔒 Security
+- **React 19** + TypeScript
+- **Vite** — fast builds, HMR, importmap support
+- **Tailwind CSS** — utility-first styling (CDN)
+- **Google GenAI SDK** — `@google/genai` for Gemini and Imagen models
+- **JSZip** — client-side project export/import
+- **GitHub Pages** — zero-cost deployment via Actions
 
-- Firebase Authentication for secure user management
-- Cloud Firestore with security rules
-- Email verification for new accounts
-- reCAPTCHA protection for phone auth
-- No passwords stored locally
+## Privacy & Security
 
-## 📖 Usage
+- **No backend, no database, no analytics, no cookies**
+- API key stored in `localStorage` — never transmitted except to Google's API endpoints
+- All project data (prompts, settings, metadata) stored in `localStorage`
+- Generated images exist only in browser memory during the session
+- Export your data anytime as a `.zip` file — you own everything
 
-1. **Sign In/Sign Up** - Choose your preferred authentication method
-2. **Create a Project** - Organize your work into projects
-3. **Generate Images** - Use AI to create stunning images
-4. **Save Prompts** - Save your best prompts for reuse
-5. **Manage Assets** - Organize and download your generated images
+## Contributing
 
-## 🤝 Contributing
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. Ideas include:
 
-Contributions are welcome! Please feel free to submit issues and pull requests.
+- New model integrations
+- UI/UX improvements
+- Prompt preset packs for new media types
+- Localization
+- Performance optimizations
 
-## 📄 License
+## License
 
-See LICENSE file for details.
+[MIT](LICENSE) © [Enahm Phoenix](https://github.com/ephoenix36)
 
-## 🙏 Acknowledgments
+---
 
-- Google Gemini AI for image generation
-- Firebase for authentication and database
-- The React team for the amazing framework
+<div align="center">
+
+**If this saved you money or time, consider starring the repo** ⭐
+
+Built by [@ephoenix36](https://github.com/ephoenix36)
+
+</div>

@@ -54,7 +54,7 @@ pnpm preview
 2. **Disk Space Savings** - Stores packages once in a global store
 3. **Strict Dependencies** - Prevents phantom dependencies
 4. **Monorepo Support** - Better workspace management
-5. **Drop-in Replacement** - Compatible with npm/yarn scripts
+5. **Drop-in Replacement** - Compatible with npm scripts
 
 ## Migration Notes
 

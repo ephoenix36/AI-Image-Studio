@@ -15,6 +15,7 @@ export interface CustomPromptHistory {
     tags: string[];
     referenceAssetIds: string[];
     aspectRatio?: string;
+    resolution?: string;
     createdAt: number;
 }
 
@@ -27,6 +28,7 @@ export interface CustomPrompt {
     folderId: string | null;
     referenceAssetIds: string[];
     aspectRatio?: string;
+    resolution?: string;
     createdAt: number;
     history?: CustomPromptHistory[];
 }
@@ -116,4 +118,6 @@ export interface User {
     activeAssetFolderId: string | null;
     apiKey?: string; // Encrypted/secure API key storage
     localStoragePath?: string; // Local directory for file storage
+    imageModel?: string; // Default image generation model
+    defaultResolution?: string; // Default output resolution
 }

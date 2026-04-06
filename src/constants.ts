@@ -11,6 +11,33 @@ export const tips: Tip[] = [
 
 export const ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4"];
 
+export const IMAGE_RESOLUTIONS = ['512', '1024', '2048', '4096'];
+
+export interface ImageModelDef {
+    id: string;
+    name: string;
+    type: 'text-to-image' | 'multimodal';
+    supportsResolution: boolean;
+    /** Cost per output image, keyed by pixel size ('512','1024','2048','4096') or 'default' */
+    costPerImage: Record<string, number>;
+    note?: string;
+}
+
+export const IMAGE_MODELS: ImageModelDef[] = [
+    { id: 'gemini-3.1-flash-image-preview', name: 'Gemini 3.1 Flash Image', type: 'multimodal', supportsResolution: true, costPerImage: { '512': 0.045, '1024': 0.067, '2048': 0.101, '4096': 0.151 } },
+    { id: 'gemini-2.5-flash-image',          name: 'Gemini 2.5 Flash Image', type: 'multimodal', supportsResolution: false, costPerImage: { default: 0.039 }, note: '≤1024px' },
+    { id: 'gemini-3-pro-image-preview',       name: 'Gemini 3 Pro Image',     type: 'multimodal', supportsResolution: true,  costPerImage: { '1024': 0.134, '2048': 0.134, '4096': 0.24 } },
+    { id: 'imagen-4.0-generate-001',          name: 'Imagen 4 Standard',      type: 'text-to-image', supportsResolution: true, costPerImage: { default: 0.04, '1024': 0.04, '2048': 0.08 }, note: '1K / 2K' },
+    { id: 'imagen-4.0-fast-generate-001',     name: 'Imagen 4 Fast',          type: 'text-to-image', supportsResolution: true, costPerImage: { default: 0.02, '1024': 0.02, '2048': 0.04 }, note: '1K / 2K' },
+    { id: 'imagen-4.0-ultra-generate-001',    name: 'Imagen 4 Ultra',         type: 'text-to-image', supportsResolution: true, costPerImage: { default: 0.06, '1024': 0.06, '2048': 0.12 }, note: '1K / 2K' },
+];
+
+export const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
+
+export const EDIT_MODELS = [
+    { id: 'gemini-2.5-flash-image', name: 'Gemini 2.5 Flash', type: 'multimodal' },
+] as const;
+
 export const DEFAULT_DESCRIPTIONS: Record<MediaType, string> = {
     "Products": "A high-end, solar-powered watch with a leather strap.",
     "Documents & Media": "An invitation to a grand opening gala.",

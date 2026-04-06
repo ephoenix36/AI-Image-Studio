@@ -120,7 +120,7 @@ export const FolderTree: React.FC<FolderTreeProps> = ({ folders, selectedFolderI
 
     return (
         <div className="space-y-1">
-             <div onClick={() => onSelectFolder(null)}
+             {rootLabel && <div onClick={() => onSelectFolder(null)}
                 onDragOver={handleDragOverRoot} onDragLeave={handleDragLeaveRoot} onDrop={handleDropRoot}
                 className={`flex items-center justify-between gap-2 p-2 rounded-md cursor-pointer transition-colors group
                 ${selectedFolderId === null ? 'bg-cyan-600/30 text-white' : 'hover:bg-slate-700'}
@@ -132,7 +132,7 @@ export const FolderTree: React.FC<FolderTreeProps> = ({ folders, selectedFolderI
                 {typeof allItemsCount === 'number' && (
                     <span className="text-xs text-slate-500 font-mono opacity-0 group-hover:opacity-100 transition-opacity">{allItemsCount}</span>
                 )}
-            </div>
+            </div>}
             {rootFolders.map(folder => (
                 <FolderItem key={folder.id} folder={folder} {...{ selectedFolderId, onSelectFolder, onFolderAction, onDrop, projects, onMoveFolderToProject }} count={itemCounts?.[folder.id]} />
             ))}

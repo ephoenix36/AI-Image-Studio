@@ -1,9 +1,32 @@
 {
   "name": "ai-image-studio",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Open-source AI image generation studio that runs entirely in your browser. No sign-up, no backend, no tracking.",
   "type": "module",
+  "license": "MIT",
+  "author": "Enahm Phoenix (https://github.com/ephoenix36)",
+  "homepage": "https://ephoenix36.github.io/AI-Image-Studio/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ephoenix36/AI-Image-Studio.git"
+  },
+  "bugs": "https://github.com/ephoenix36/AI-Image-Studio/issues",
+  "keywords": [
+    "ai",
+    "image-generation",
+    "gemini",
+    "imagen",
+    "prompt-engineering",
+    "google-ai",
+    "react",
+    "typescript",
+    "vite"
+  ],
   "packageManager": "pnpm@10.14.0",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -11,10 +34,8 @@
   },
   "dependencies": {
     "@google/genai": "^1.21.0",
-    "firebase": "^12.5.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "react-phone-number-input": "^3.4.13"
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

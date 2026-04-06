@@ -301,7 +301,6 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                         onSelectFolder={onSelectFolder} 
                         onFolderAction={onFolderAction} 
                         onDrop={(folderId) => onMoveAssets(Array.from(selectedImageIds), folderId)} 
-                        rootLabel="Home" 
                         projects={user.projects}
                         onMoveFolderToProject={onMoveFolderToProject}
                     />
@@ -381,8 +380,8 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                                                                 <p className="text-xs text-white truncate">{asset.name}</p>
                                                             </div>
                                                             <div className="absolute top-2 right-2 flex flex-col gap-1.5 opacity-0 group-hover/asset:opacity-100 transition-opacity">
-                                                                <button onClick={(e)=>{ e.stopPropagation(); onAssetClick(asset); }} className="p-1.5 bg-slate-800/70 hover:bg-slate-700 rounded-md"><Icon path={ICONS.SEARCH} className="w-4 h-4" /></button>
-                                                                <button onClick={(e)=>{ e.stopPropagation(); onMagicEdit(asset); }} className="p-1.5 bg-slate-800/70 hover:bg-slate-700 rounded-md text-cyan-400"><Icon path={ICONS.SPARKLES} className="w-4 h-4" /></button>
+                                                                <button onClick={(e)=>{ e.stopPropagation(); onAssetClick(asset); }} className="w-7 h-7 flex items-center justify-center bg-slate-800/70 hover:bg-slate-700 rounded-md"><Icon path={ICONS.SEARCH} className="w-4 h-4" /></button>
+                                                                <button onClick={(e)=>{ e.stopPropagation(); onMagicEdit(asset); }} className="w-7 h-7 flex items-center justify-center bg-slate-800/70 hover:bg-slate-700 rounded-md text-cyan-400"><Icon path={ICONS.SPARKLES} className="w-4 h-4" /></button>
                                                             </div>
                                                         </div>
                                                     );
@@ -425,8 +424,8 @@ export const PhotoGallery: React.FC<PhotoGalleryProps> = ({
                                                     <p className="text-xs text-white truncate">{asset.name}</p>
                                                 </div>
                                                 <div className="absolute top-2 right-2 flex flex-col gap-1.5 opacity-0 group-hover/asset:opacity-100 transition-opacity">
-                                                    <button onClick={(e)=>{ e.stopPropagation(); onAssetClick(asset); }} className="p-1.5 bg-slate-800/70 hover:bg-slate-700 rounded-md"><Icon path={ICONS.SEARCH} className="w-4 h-4" /></button>
-                                                    <button onClick={(e)=>{ e.stopPropagation(); onMagicEdit(asset); }} className="p-1.5 bg-slate-800/70 hover:bg-slate-700 rounded-md text-cyan-400"><Icon path={ICONS.SPARKLES} className="w-4 h-4" /></button>
+                                                    <button onClick={(e)=>{ e.stopPropagation(); onAssetClick(asset); }} className="w-7 h-7 flex items-center justify-center bg-slate-800/70 hover:bg-slate-700 rounded-md"><Icon path={ICONS.SEARCH} className="w-4 h-4" /></button>
+                                                    <button onClick={(e)=>{ e.stopPropagation(); onMagicEdit(asset); }} className="w-7 h-7 flex items-center justify-center bg-slate-800/70 hover:bg-slate-700 rounded-md text-cyan-400"><Icon path={ICONS.SPARKLES} className="w-4 h-4" /></button>
                                                 </div>
                                             </div>
                                         );

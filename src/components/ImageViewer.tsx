@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { GeneratedAsset, ReferenceImage } from '@/types/types';
 import { Icon } from '@/components/Icon';
 import { ICONS } from '@/constants';
@@ -28,6 +28,7 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ isOpen, asset, allAsse
     const [pan, setPan] = useState({ x: 0, y: 0 });
     const [isPanning, setIsPanning] = useState(false);
     const [startPan, setStartPan] = useState({ x: 0, y: 0 });
+    const stageRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (asset && allAssets.length > 0) {
@@ -74,8 +75,25 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ isOpen, asset, allAsse
     
     const handleWheel = useCallback((e: React.WheelEvent) => {
         e.preventDefault();
+        const stage = stageRef.current;
+        if (!stage) return;
+
+        const rect = stage.getBoundingClientRect();
+        const cursorX = e.clientX - (rect.left + rect.width / 2);
+        const cursorY = e.clientY - (rect.top + rect.height / 2);
         const delta = e.deltaY > 0 ? -0.1 : 0.1;
-        setZoom(prev => Math.max(0.5, Math.min(5, prev + delta)));
+
+        setZoom((previousZoom) => {
+            const nextZoom = Math.max(0.5, Math.min(5, +(previousZoom + delta).toFixed(2)));
+            if (nextZoom === previousZoom) return previousZoom;
+
+            setPan((previousPan) => ({
+                x: cursorX - ((cursorX - previousPan.x) / previousZoom) * nextZoom,
+                y: cursorY - ((cursorY - previousPan.y) / previousZoom) * nextZoom,
+            }));
+
+            return nextZoom;
+        });
     }, []);
 
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -130,56 +148,63 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ isOpen, asset, allAsse
     const imageUrl = isGenerated ? currentAsset.imageUrl : currentAsset.previewUrl;
 
     return (
-         <div className="fixed inset-0 bg-black/80 backdrop-blur-lg flex flex-col items-center justify-center p-4 z-[60]" onClick={handleClose}>
-            <button onClick={handleClose} className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white text-4xl leading-none z-20">&times;</button>
-            {allAssets.length > 1 && <button onClick={handleNext} className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 rounded-full p-2 text-white z-20"><Icon path={ICONS.CHEVRON_LEFT} className="w-8 h-8"/></button>}
-            {allAssets.length > 1 && <button onClick={handlePrev} className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 rounded-full p-2 text-white z-20"><Icon path={ICONS.CHEVRON_RIGHT} className="w-8 h-8"/></button>}
+         <div className="fixed inset-0 bg-black/80 backdrop-blur-lg flex flex-col z-[60]" onClick={handleClose}>
+            <button onClick={handleClose} className="absolute top-3 right-4 p-2 text-slate-400 hover:text-white text-3xl leading-none z-20">&times;</button>
+            {allAssets.length > 1 && <button onClick={handlePrev} className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 rounded-full p-2 text-white z-20"><Icon path={ICONS.CHEVRON_LEFT} className="w-8 h-8"/></button>}
+            {allAssets.length > 1 && <button onClick={handleNext} className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 bg-white/10 hover:bg-white/20 rounded-full p-2 text-white z-20"><Icon path={ICONS.CHEVRON_RIGHT} className="w-8 h-8"/></button>}
             
-            <main className="flex-1 flex w-full h-full items-center justify-center relative min-h-0" onClick={e => e.stopPropagation()}>
-    <div 
-        className="relative group/viewer overflow-hidden"
-        onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        style={{ cursor: zoom > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default' }}
-    >
-        <img 
-            src={imageUrl} 
-            alt={currentAsset.name} 
-            className="max-w-full max-h-full object-contain rounded-lg select-none"
-            style={{
-                transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
-                transition: isPanning ? 'none' : 'transform 0.1s ease-out'
-            }}
-            draggable={false}
-        />
-        <div className="absolute top-2 left-2 flex flex-col items-stretch gap-1 opacity-0 group-hover/viewer:opacity-100 transition-opacity duration-300 bg-slate-900/80 backdrop-blur-sm p-2 rounded-lg border border-slate-700 min-w-[80px]">
-            <Tooltip text="Zoom In"><button onClick={() => setZoom(prev => Math.min(5, prev + 0.25))} className="w-full p-2 rounded-md bg-slate-800 hover:bg-slate-700 transition"><span className="text-lg font-bold">+</span></button></Tooltip>
-            <div className="text-center text-xs text-slate-400">{Math.round(zoom * 100)}%</div>
-            <Tooltip text="Zoom Out"><button onClick={() => setZoom(prev => Math.max(0.5, prev - 0.25))} className="w-full p-2 rounded-md bg-slate-800 hover:bg-slate-700 transition"><span className="text-lg font-bold">−</span></button></Tooltip>
-            <Tooltip text="Reset Zoom"><button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="w-full p-1 rounded-md bg-slate-800 hover:bg-slate-700 transition text-xs">Reset</button></Tooltip>
-        </div>
-        <div className="absolute top-2 right-2 flex flex-col items-stretch gap-2 opacity-0 group-hover/viewer:opacity-100 transition-opacity duration-300 bg-slate-900/80 backdrop-blur-sm p-2 rounded-lg border border-slate-700 min-w-[80px]">
-            {isGenerated && <Tooltip text={isSelected ? 'Deselect' : 'Select'}><button onClick={() => onSelectAsset(currentAsset.id, !isSelected)} className={`w-full p-2 rounded-md transition ${isSelected ? 'bg-green-600 hover:bg-green-500' : 'bg-slate-800 hover:bg-slate-700'}`}><Icon path={ICONS.CHECK} className="w-5 h-5 mx-auto"/></button></Tooltip>}
-            <Tooltip text="Magic Edit"><button onClick={() => onMagicEdit(currentAsset)} className="w-full p-2 rounded-md bg-slate-800 hover:bg-slate-700 transition text-cyan-400"><Icon path={ICONS.SPARKLES} className="w-5 h-5 mx-auto"/></button></Tooltip>
-            <Tooltip text="Delete"><button onClick={() => onDeleteAsset(currentAsset.id)} className="w-full p-2 rounded-md bg-slate-800 hover:bg-slate-700 transition text-red-400"><Icon path={ICONS.TRASH} className="w-5 h-5 mx-auto"/></button></Tooltip>
-        </div>
-    </div>
-</main>
+            <main className="flex-1 flex w-full items-center justify-center relative min-h-0 overflow-hidden group/viewer p-10 pt-12" onClick={e => e.stopPropagation()}>
+                <div 
+                    ref={stageRef}
+                    className="relative overflow-hidden max-w-full max-h-full flex items-center justify-center"
+                    onWheel={handleWheel}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                    style={{ cursor: zoom > 1 ? (isPanning ? 'grabbing' : 'grab') : 'default' }}
+                >
+                    <img 
+                        src={imageUrl} 
+                        alt={currentAsset.name} 
+                        className="max-w-full max-h-full object-contain rounded-lg select-none"
+                        style={{
+                            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                            transition: isPanning ? 'none' : 'transform 0.1s ease-out'
+                        }}
+                        draggable={false}
+                    />
+                </div>
+                {/* Zoom controls — positioned within main so always in viewport */}
+                <div className="absolute top-4 left-4 flex flex-col items-stretch gap-1 opacity-0 group-hover/viewer:opacity-100 transition-opacity duration-300 bg-slate-900/80 backdrop-blur-sm p-1.5 rounded-lg border border-slate-700 z-10">
+                    <Tooltip text="Zoom In"><button onClick={() => setZoom((previousZoom) => Math.min(5, +(previousZoom + 0.25).toFixed(2)))} className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 transition"><span className="text-sm font-bold">+</span></button></Tooltip>
+                    <div className="text-center text-xs text-slate-400 py-0.5">{Math.round(zoom * 100)}%</div>
+                    <Tooltip text="Zoom Out"><button onClick={() => setZoom((previousZoom) => Math.max(0.5, +(previousZoom - 0.25).toFixed(2)))} className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 transition"><span className="text-sm font-bold">−</span></button></Tooltip>
+                    <Tooltip text="Reset Zoom"><button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 transition text-xs">↺</button></Tooltip>
+                </div>
+                {/* Action controls — positioned within main */}
+                <div className="absolute top-4 right-4 flex flex-col items-stretch gap-1.5 opacity-0 group-hover/viewer:opacity-100 transition-opacity duration-300 bg-slate-900/80 backdrop-blur-sm p-1.5 rounded-lg border border-slate-700 z-10">
+                    {isGenerated && <Tooltip text={isSelected ? 'Deselect' : 'Select'}><button onClick={() => onSelectAsset(currentAsset.id, !isSelected)} className={`w-8 h-8 flex items-center justify-center rounded-md transition ${isSelected ? 'bg-green-600 hover:bg-green-500' : 'bg-slate-800 hover:bg-slate-700'}`}><Icon path={ICONS.CHECK} className="w-4 h-4"/></button></Tooltip>}
+                    <Tooltip text="Magic Edit"><button onClick={() => onMagicEdit(currentAsset)} className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 transition text-cyan-400"><Icon path={ICONS.SPARKLES} className="w-4 h-4"/></button></Tooltip>
+                    <Tooltip text="Delete"><button onClick={() => onDeleteAsset(currentAsset.id)} className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 transition text-red-400"><Icon path={ICONS.TRASH} className="w-4 h-4"/></button></Tooltip>
+                </div>
+            </main>
             
-            <footer className="w-full max-w-5xl flex-shrink-0 text-left p-4" onClick={e => e.stopPropagation()}>
-                 <div className="space-y-2 text-sm max-w-3xl">
+            <footer className="w-full flex-shrink-0 text-left px-6 py-3 max-h-48 overflow-y-auto" onClick={e => e.stopPropagation()}>
+                 <div className="space-y-1.5 text-sm max-w-4xl">
                     {isEditingName ? (
                         <input type="text" value={name} onChange={e => setName(e.target.value)} onBlur={handleNameSave} onKeyDown={e => e.key === 'Enter' && handleNameSave()} autoFocus className="bg-slate-900 text-lg font-bold w-auto max-w-full p-1 rounded border border-cyan-500 text-left" />
                     ) : (
-                        <h2 className="text-lg font-bold text-white break-words cursor-pointer" onDoubleClick={() => setIsEditingName(true)}>{currentAsset.name}</h2>
+                        <h2 className="text-base font-bold text-white break-words cursor-pointer leading-tight" onDoubleClick={() => setIsEditingName(true)}>{currentAsset.name}</h2>
                     )}
                     {isGenerated && (
                         <>
-                            <p className="text-slate-200 text-base break-words max-w-prose">{currentAsset.prompt}</p>
-                            <p className="text-slate-400 text-xs"><strong className="text-slate-300">Date:</strong> {new Date(currentAsset.createdAt).toLocaleString()} | <strong className="text-slate-300">Ratio:</strong> {currentAsset.aspectRatio} | <strong className="text-slate-300">Resolution:</strong> {currentAsset.resolution ? `${currentAsset.resolution.width}x${currentAsset.resolution.height}` : 'N/A'}</p>
+                            <p className="text-slate-300 text-sm break-words max-w-prose leading-relaxed">{currentAsset.prompt}</p>
+                            <p className="text-slate-400 text-xs">
+                                <strong className="text-slate-300">Date:</strong> {new Date(currentAsset.createdAt).toLocaleString()}
+                                {currentAsset.aspectRatio && <> | <strong className="text-slate-300">Ratio:</strong> {currentAsset.aspectRatio}</>}
+                                {currentAsset.resolution && <> | <strong className="text-slate-300">Resolution:</strong> {currentAsset.resolution.width}x{currentAsset.resolution.height}</>}
+                            </p>
                         </>
                     )}
                 </div>

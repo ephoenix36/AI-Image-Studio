@@ -2,7 +2,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import Studio from '@/Studio';
-import { AuthProvider } from '@/contexts/AuthContext';
+import { AppProvider } from '@/contexts/AppContext';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -21,9 +21,9 @@ window.addEventListener('unhandledrejection', (event) => {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <AuthProvider>
+    <AppProvider>
       <Studio />
-    </AuthProvider>
+    </AppProvider>
   </React.StrictMode>
 );
 

@@ -181,7 +181,7 @@ AI-Image-Studio/
 
 ### Build errors?
 ```bash
-yarn build    # Check for TypeScript errors
+pnpm build    # Check for TypeScript errors
 ```
 
 ### Dev server issues?
