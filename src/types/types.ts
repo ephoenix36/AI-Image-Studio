@@ -120,4 +120,13 @@ export interface User {
     localStoragePath?: string; // Local directory for file storage
     imageModel?: string; // Default image generation model
     defaultResolution?: string; // Default output resolution
+    // Persisted settings (survive page refresh)
+    isBatchMode?: boolean;
+    batchGenerationCount?: number;
+    showAllPreviews?: boolean;
+    defaultAspectRatio?: string;
+    splitNewLines?: boolean;
+    devMode?: boolean;
+    confirmOnDelete?: boolean;
+    selectedMediaType?: string;
 }

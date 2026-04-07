@@ -176,14 +176,14 @@ export const ImageViewer: React.FC<ImageViewerProps> = ({ isOpen, asset, allAsse
                     />
                 </div>
                 {/* Zoom controls — positioned within main so always in viewport */}
-                <div className="absolute top-4 left-4 flex flex-col items-stretch gap-1 opacity-0 group-hover/viewer:opacity-100 transition-opacity duration-300 bg-slate-900/80 backdrop-blur-sm p-1.5 rounded-lg border border-slate-700 z-10">
+                <div className="absolute top-20 left-4 flex flex-col items-stretch gap-1 opacity-0 group-hover/viewer:opacity-100 transition-opacity duration-300 bg-slate-900/80 backdrop-blur-sm p-1.5 rounded-lg border border-slate-700 z-10">
                     <Tooltip text="Zoom In"><button onClick={() => setZoom((previousZoom) => Math.min(5, +(previousZoom + 0.25).toFixed(2)))} className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 transition"><span className="text-sm font-bold">+</span></button></Tooltip>
                     <div className="text-center text-xs text-slate-400 py-0.5">{Math.round(zoom * 100)}%</div>
                     <Tooltip text="Zoom Out"><button onClick={() => setZoom((previousZoom) => Math.max(0.5, +(previousZoom - 0.25).toFixed(2)))} className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 transition"><span className="text-sm font-bold">−</span></button></Tooltip>
                     <Tooltip text="Reset Zoom"><button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 transition text-xs">↺</button></Tooltip>
                 </div>
                 {/* Action controls — positioned within main */}
-                <div className="absolute top-4 right-4 flex flex-col items-stretch gap-1.5 opacity-0 group-hover/viewer:opacity-100 transition-opacity duration-300 bg-slate-900/80 backdrop-blur-sm p-1.5 rounded-lg border border-slate-700 z-10">
+                <div className="absolute top-20 right-4 flex flex-col items-stretch gap-1.5 opacity-0 group-hover/viewer:opacity-100 transition-opacity duration-300 bg-slate-900/80 backdrop-blur-sm p-1.5 rounded-lg border border-slate-700 z-10">
                     {isGenerated && <Tooltip text={isSelected ? 'Deselect' : 'Select'}><button onClick={() => onSelectAsset(currentAsset.id, !isSelected)} className={`w-8 h-8 flex items-center justify-center rounded-md transition ${isSelected ? 'bg-green-600 hover:bg-green-500' : 'bg-slate-800 hover:bg-slate-700'}`}><Icon path={ICONS.CHECK} className="w-4 h-4"/></button></Tooltip>}
                     <Tooltip text="Magic Edit"><button onClick={() => onMagicEdit(currentAsset)} className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 transition text-cyan-400"><Icon path={ICONS.SPARKLES} className="w-4 h-4"/></button></Tooltip>
                     <Tooltip text="Delete"><button onClick={() => onDeleteAsset(currentAsset.id)} className="w-8 h-8 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 transition text-red-400"><Icon path={ICONS.TRASH} className="w-4 h-4"/></button></Tooltip>

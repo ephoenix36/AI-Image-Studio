@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { ICONS, ASPECT_RATIOS, IMAGE_MODELS, IMAGE_RESOLUTIONS } from '@/constants';
 import { useBodyScrollLock } from '@/utils/utils';
+import { isFileSystemAccessSupported, pickDirectory, getDirectoryHandle } from '@/services/storageService';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -80,10 +81,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setLocalStoragePath(storagePathInput);
     };
     
-    const handleBrowseFolder = () => {
-        // In a web environment, we can't directly browse folders
-        // This would require a File System Access API or Electron integration
-        alert('Note: For web applications, you can manually enter the path. For desktop apps, this would open a folder browser.');
+    const handleBrowseFolder = async () => {
+        if (isFileSystemAccessSupported()) {
+            const handle = await pickDirectory();
+            if (handle) {
+                setStoragePathInput(handle.name);
+                setLocalStoragePath(handle.name);
+            }
+        } else {
+            alert('Your browser does not support the File System Access API. Please enter a path manually (used as a label only — files will be persisted in your browser).');
+        }
     };
     
     if (!isOpen) return null;
@@ -197,7 +204,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                 </div>
                             )}
                             <p className="text-xs text-slate-400">
-                                Specify where generated images and project files should be saved on your local system.
+                                {isFileSystemAccessSupported()
+                                    ? 'Use "Browse" to select a local folder. Generated images and project data will be auto-saved there. Your data is also persisted in the browser automatically.'
+                                    : 'Your browser does not support direct folder access. All data (images, prompts, settings) is automatically saved in your browser and will persist across page refreshes.'}
                             </p>
                         </div>
                     </div>

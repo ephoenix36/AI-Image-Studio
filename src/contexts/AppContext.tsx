@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import type { User } from '@/types/types';
+import { persistImages, rehydrateImages } from '@/services/storageService';
 
 const STORAGE_KEY = 'aiImageStudio_user';
 const API_KEY_STORAGE_KEY = 'aiImageStudio_apiKey';
@@ -99,25 +100,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [user, setUserState] = useState<User | null>(null);
   const [apiKey, setApiKeyState] = useState('');
   const [isReady, setIsReady] = useState(false);
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load on mount
+  // Load on mount — rehydrate images from IndexedDB after loading user from localStorage
   useEffect(() => {
-    const stored = loadUserFromStorage();
-    if (stored) {
+    async function init() {
+      let stored = loadUserFromStorage();
+      if (!stored) {
+        stored = createDefaultUser();
+      }
+      // Rehydrate stripped image data from IndexedDB
+      try {
+        await rehydrateImages(stored.projects);
+      } catch (e) {
+        console.warn('Failed to rehydrate images from IndexedDB:', e);
+      }
       setUserState(stored);
-    } else {
-      setUserState(createDefaultUser());
+      const envKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+      setApiKeyState(localStorage.getItem(API_KEY_STORAGE_KEY) || envKey);
+      setIsReady(true);
     }
-    const envKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-    setApiKeyState(localStorage.getItem(API_KEY_STORAGE_KEY) || envKey);
-    setIsReady(true);
+    init();
   }, []);
 
-  // Persist user changes
+  // Persist user changes — debounced to avoid hammering storage on rapid updates
   useEffect(() => {
-    if (isReady && user) {
-      saveUserToStorage(user);
-    }
+    if (!isReady || !user) return;
+    // Save lightweight copy to localStorage immediately
+    saveUserToStorage(user);
+    // Debounce IndexedDB image persistence (heavier operation)
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      persistImages(user.projects).catch(e =>
+        console.warn('Failed to persist images to IndexedDB:', e)
+      );
+    }, 1000);
   }, [user, isReady]);
 
   const setUser = useCallback((data: User | null) => {

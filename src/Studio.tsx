@@ -22,6 +22,7 @@ import { BatchEditorModal } from '@/components/BatchEditorModal';
 
 import { useApp } from '@/contexts/AppContext';
 import { generateImage } from '@/services/geminiService';
+import { getDirectoryHandle, saveToLocalFolder, dataURItoBlob } from '@/services/storageService';
 import { blobToBase64, sanitizeFilename, textToBlob, getResolution, useUndoableState, useBodyScrollLock } from '@/utils/utils';
 
 
@@ -158,9 +159,9 @@ export default function Studio() {
     const [subjectDescription, setSubjectDescription] = useState("a high-end, solar-powered watch with a leather strap");
     const [hasUserEditedDescription, setHasUserEditedDescription] = useState(false);
     
-    const [isBatchMode, setIsBatchMode] = useState(false);
-    const [batchGenerationCount, setBatchGenerationCount] = useState(1);
-    const [showAllPreviews, setShowAllPreviews] = useState(true);
+    const [isBatchMode, _setIsBatchMode] = useState(user?.isBatchMode ?? false);
+    const [batchGenerationCount, _setBatchGenerationCount] = useState(user?.batchGenerationCount ?? 1);
+    const [showAllPreviews, _setShowAllPreviews] = useState(user?.showAllPreviews ?? true);
     const [selectedPrompts, setSelectedPrompts] = useState<string[]>([]);
     const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
     const [loadingStates, setLoadingStates] = useState<Record<string, LoadingState>>({});
@@ -183,21 +184,21 @@ export default function Studio() {
     const lastPromptSelectedIndex = useRef<number | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [searchTerm, setSearchTerm] = useState("");
-    const [selectedMediaType, setSelectedMediaType] = useState<MediaType>("Products");
+    const [selectedMediaType, _setSelectedMediaType] = useState<MediaType>((user?.selectedMediaType as MediaType) || "Products");
 
     // Modal States
     const [renameTarget, setRenameTarget] = useState<{ type: 'project' | 'folder', id: string | null, name: string, folderType?: 'prompt' | 'asset', parentId?: string | null } | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<{ type: 'project' | 'folder', id: string | null, name: string, folderType?: 'prompt' | 'asset' } | null>(null);
     const [deleteAssetsTarget, setDeleteAssetsTarget] = useState<string[] | null>(null);
 
-    // Settings state
-    const [defaultAspectRatio, setDefaultAspectRatio] = useState("");
-    const [defaultResolution, setDefaultResolution] = useState(user?.defaultResolution || "");
-    const [splitNewLines, setSplitNewLines] = useState(true);
-    const [imageModel, setImageModel] = useState(user?.imageModel || DEFAULT_IMAGE_MODEL);
-    const [devMode, setDevMode] = useState(false);
+    // Settings state (persisted through User object → localStorage)
+    const [defaultAspectRatio, _setDefaultAspectRatio] = useState(user?.defaultAspectRatio || "");
+    const [defaultResolution, _setDefaultResolution] = useState(user?.defaultResolution || "");
+    const [splitNewLines, _setSplitNewLines] = useState(user?.splitNewLines ?? true);
+    const [imageModel, _setImageModel] = useState(user?.imageModel || DEFAULT_IMAGE_MODEL);
+    const [devMode, _setDevMode] = useState(user?.devMode ?? false);
     const [hiddenPresetIds, setHiddenPresetIds] = useState<Set<string>>(new Set());
-    const [confirmOnDelete, setConfirmOnDelete] = useState(true);
+    const [confirmOnDelete, _setConfirmOnDelete] = useState(user?.confirmOnDelete ?? true);
     const [sessionCost, setSessionCost] = useState(0);
 
     // Collapsible state
@@ -298,6 +299,18 @@ export default function Studio() {
             };
         });
     }, [updateUser]);
+
+    // Persisting setters — update local state AND save to User object for persistence
+    const setIsBatchMode = useCallback((v: boolean) => { _setIsBatchMode(v); updateUser(u => ({ ...u, isBatchMode: v })); }, [updateUser]);
+    const setBatchGenerationCount = useCallback((v: number) => { _setBatchGenerationCount(v); updateUser(u => ({ ...u, batchGenerationCount: v })); }, [updateUser]);
+    const setShowAllPreviews = useCallback((v: boolean) => { _setShowAllPreviews(v); updateUser(u => ({ ...u, showAllPreviews: v })); }, [updateUser]);
+    const setDefaultAspectRatio = useCallback((v: string) => { _setDefaultAspectRatio(v); updateUser(u => ({ ...u, defaultAspectRatio: v })); }, [updateUser]);
+    const setDefaultResolution = useCallback((v: string) => { _setDefaultResolution(v); updateUser(u => ({ ...u, defaultResolution: v })); }, [updateUser]);
+    const setSplitNewLines = useCallback((v: boolean) => { _setSplitNewLines(v); updateUser(u => ({ ...u, splitNewLines: v })); }, [updateUser]);
+    const setImageModel = useCallback((v: string) => { _setImageModel(v); updateUser(u => ({ ...u, imageModel: v })); }, [updateUser]);
+    const setDevMode = useCallback((v: boolean) => { _setDevMode(v); updateUser(u => ({ ...u, devMode: v })); }, [updateUser]);
+    const setConfirmOnDelete = useCallback((v: boolean) => { _setConfirmOnDelete(v); updateUser(u => ({ ...u, confirmOnDelete: v })); }, [updateUser]);
+    const setSelectedMediaType = useCallback((v: MediaType) => { _setSelectedMediaType(v); updateUser(u => ({ ...u, selectedMediaType: v })); }, [updateUser]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -417,15 +430,20 @@ export default function Studio() {
                 // Use functional update to prevent race condition when multiple images generate simultaneously
                 updateActiveProject(p => {
                     const newProj = { ...p, generatedAssets: [...p.generatedAssets, newAsset] };
-                    
-                    // Show a one-time notification about session-only storage
-                    if (p.generatedAssets.length === 0 && !localStorage.getItem('hasShownStorageWarning')) {
-                        localStorage.setItem('hasShownStorageWarning', 'true');
-                        addNotification('💡 Tip: Generated images exist only during this session. Use Gallery > Download to save them!', 'info');
-                    }
-                    
                     return newProj;
                 });
+
+                // Auto-save to local folder if directory handle is available
+                const dirHandle = getDirectoryHandle();
+                if (dirHandle && newAsset.imageUrl.startsWith('data:')) {
+                    try {
+                        const blob = dataURItoBlob(newAsset.imageUrl);
+                        const ext = blob.type === 'image/png' ? '.png' : blob.type === 'image/webp' ? '.webp' : '.jpg';
+                        await saveToLocalFolder(dirHandle, 'generated', `${newAsset.name}${ext}`, blob);
+                    } catch (e) {
+                        console.warn('Failed to save to local folder:', e);
+                    }
+                }
             } else if (result.error) { throw new Error(result.error); }
         } catch (error: any) {
             if (error.name !== 'AbortError') {
@@ -1931,7 +1949,7 @@ export default function Studio() {
                 defaultAspectRatio={defaultAspectRatio}
                 setDefaultAspectRatio={setDefaultAspectRatio}
                 defaultResolution={defaultResolution}
-                setDefaultResolution={(r) => { setDefaultResolution(r); updateUser(u => ({...u, defaultResolution: r})); }}
+                setDefaultResolution={setDefaultResolution}
                 batchGenerationCount={batchGenerationCount}
                 setBatchGenerationCount={setBatchGenerationCount}
                 devMode={devMode}
@@ -1943,7 +1961,7 @@ export default function Studio() {
                 localStoragePath={user?.localStoragePath}
                 setLocalStoragePath={(path) => updateUser(u => ({...u, localStoragePath: path}))}
                 imageModel={imageModel}
-                setImageModel={(m) => { setImageModel(m); updateUser(u => ({...u, imageModel: m})); }}
+                setImageModel={setImageModel}
                 sessionCost={sessionCost}
                 onResetSessionCost={() => setSessionCost(0)}
             />
